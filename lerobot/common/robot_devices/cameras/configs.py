@@ -126,9 +126,9 @@ class ZedCameraConfig(CameraConfig):
     ```
     """
 
-    port: str
+    id: int
     fps: int = 30
     width: int = 3840
     height: int = 1080
-    use_depth: bool = True
+    use_depth: bool = False
     mock: bool = False

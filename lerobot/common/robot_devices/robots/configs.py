@@ -625,7 +625,7 @@ class AlmondRobotConfig(ManipulatorRobotConfig):
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
             "arm": ZedCameraConfig(
-                port="/dev/ttyUSB0",
+                id=0,
                 fps=30,
                 width=3840,
                 height=1080,
