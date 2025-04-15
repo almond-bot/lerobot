@@ -112,3 +112,23 @@ class IntelRealSenseCameraConfig(CameraConfig):
 
         if self.rotation not in [-90, None, 90, 180]:
             raise ValueError(f"`rotation` must be in [-90, None, 90, 180] (got {self.rotation})")
+
+@CameraConfig.register_subclass("zed")
+@dataclass
+class ZedCameraConfig(CameraConfig):
+    """
+    Example of tested options for Intel Real Sense D405:
+
+    ```python
+    ZedCameraConfig(0, 30, 3840, 1080)
+    ZedCameraConfig(0, 60, 3840, 1080)
+    ZedCameraConfig(0, 90, 3840, 1080)
+    ```
+    """
+
+    port: str
+    fps: int = 30
+    width: int = 3840
+    height: int = 1080
+    use_depth: bool = True
+    mock: bool = False
