@@ -64,8 +64,6 @@ class AlmondRobot:
         self.target_gripper_position = 0
         self.target_gripper_force = 0
 
-        self.action_keys: list[str] | None = None
-
         self.action_queue: Queue[dict[str, float]] = Queue()
         
         # Web server setup
@@ -227,6 +225,47 @@ class AlmondRobot:
 
             last_action = action
 
+    @property
+    def camera_features(self) -> dict:
+        cam_ft = {}
+        for cam_key, cam in self.cameras.items():
+            key = f"observation.images.{cam_key}"
+            cam_ft[key] = {
+                "shape": (cam.height, cam.width, cam.channels),
+                "names": ["height", "width", "channels"],
+                "info": None,
+            }
+        return cam_ft
+
+    @property
+    def motor_features(self) -> dict:
+        action_names = ["j1.dir", "j2.dir", "j3.dir", "j4.dir", "j5.dir", "j6.dir"]
+        state_names = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos"]
+        return {
+            "action": {
+                "dtype": "float32",
+                "shape": (len(action_names),),
+                "names": action_names,
+            },
+            "observation.state": {
+                "dtype": "float32",
+                "shape": (len(state_names),),
+                "names": state_names,
+            },
+        }
+
+    @property
+    def features(self):
+        return {**self.motor_features, **self.camera_features}
+
+    @property
+    def has_camera(self):
+        return len(self.cameras) > 0
+
+    @property
+    def num_cameras(self):
+        return len(self.cameras)
+
     def connect(self) -> None:
         if self.is_connected:
             return
@@ -277,29 +316,27 @@ class AlmondRobot:
     def run_calibration(self) -> None:
         self.arm.MoveJ([0, -135, 135, -180, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
-    def get_observation_state(self) -> dict:
-        return {
-            "j1.pos": self.arm_state.jt_cur_pos[0],
-            "j2.pos": self.arm_state.jt_cur_pos[1],
-            "j3.pos": self.arm_state.jt_cur_pos[2],
-            "j4.pos": self.arm_state.jt_cur_pos[3],
-            "j5.pos": self.arm_state.jt_cur_pos[4],
-            "j6.pos": self.arm_state.jt_cur_pos[5],
-            "gripper.pos": self.arm_state.gripper_position,
-            "gripper.cur": self.arm_state.gripper_current
-        }
+    def get_observation_state(self, keys_only: bool = False) -> dict:
+        keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "gripper.pos", "gripper.cur"]
+        if keys_only:
+            return keys
+        
+        values = [self.arm_state.jt_cur_pos[i] for i in range(6)]
+        values.append(self.arm_state.gripper_position)
+        values.append(self.arm_state.gripper_current)
 
-    def get_action_state(self) -> dict:
-        return {
-            "j1.dir": 1 if self.arm_state.actual_qd[0] > 0 else -1,
-            "j2.dir": 1 if self.arm_state.actual_qd[1] > 0 else -1,
-            "j3.dir": 1 if self.arm_state.actual_qd[2] > 0 else -1,
-            "j4.dir": 1 if self.arm_state.actual_qd[3] > 0 else -1,
-            "j5.dir": 1 if self.arm_state.actual_qd[4] > 0 else -1,
-            "j6.dir": 1 if self.arm_state.actual_qd[5] > 0 else -1,
-            "gripper.pos": self.target_gripper_position,
-            "gripper.for": self.target_gripper_force
-        }
+        return {keys[i]: values[i] for i in range(len(keys))}
+
+    def get_action_state(self, keys_only: bool = False) -> dict:
+        keys = ["j1.dir", "j2.dir", "j3.dir", "j4.dir", "j5.dir", "j6.dir", "gripper.pos", "gripper.for"]
+        if keys_only:
+            return keys
+        
+        values = [1 if self.arm_state.actual_qd[i] > 0 else -1 for i in range(6)]
+        values.append(self.target_gripper_position)
+        values.append(self.target_gripper_force)
+
+        return {keys[i]: values[i] for i in range(len(keys))}
 
     def teleop_step(
         self, record_data=False
@@ -367,10 +404,7 @@ class AlmondRobot:
         if not self.is_connected:
             raise ConnectionError()
 
-        if self.action_keys is None:
-            self.action_keys = list(self.get_action_state().keys())
-
-        action_dict = dict(zip(self.action_keys, action.tolist(), strict=True))
+        action_dict = dict(zip(self.get_action_state(keys_only=True), action.tolist(), strict=True))
         self.action_queue.put(action_dict)
 
         # TODO(aliberts): return action_sent when motion is limited
