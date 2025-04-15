@@ -616,7 +616,7 @@ class LeKiwiRobotConfig(RobotConfig):
 
 @RobotConfig.register_subclass("almond")
 @dataclass
-class AlmondRobotConfig(ManipulatorRobotConfig):
+class AlmondRobotConfig(RobotConfig):
     # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
     # Set this to a positive scalar to have the same value for all motors, or a list that is the same length as
     # the number of motors in your follower arms.
