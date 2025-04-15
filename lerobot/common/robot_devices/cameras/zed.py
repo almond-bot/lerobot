@@ -67,15 +67,15 @@ def find_cameras(raise_when_empty=True, mock=False) -> list[dict]:
     return cameras
 
 
-def save_image(img_array, serial_number, frame_index, images_dir):
+def save_image(img_array, id, frame_index, images_dir):
     try:
         img = Image.fromarray(img_array)
-        path = images_dir / f"camera_{serial_number}_frame_{frame_index:06d}.png"
+        path = images_dir / f"camera_{id}_frame_{frame_index:06d}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         img.save(str(path), quality=100)
         logging.info(f"Saved image: {path}")
     except Exception as e:
-        logging.error(f"Failed to save image for camera {serial_number} frame {frame_index}: {e}")
+        logging.error(f"Failed to save image for camera {id} frame {frame_index}: {e}")
 
 
 def save_images_from_cameras(
@@ -141,7 +141,7 @@ def save_images_from_cameras(
                     executor.submit(
                         save_image,
                         bgr_converted_image,
-                        camera.serial_number,
+                        camera.id,
                         frame_index,
                         images_dir,
                     )
