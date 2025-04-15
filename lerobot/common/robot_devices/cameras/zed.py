@@ -264,6 +264,7 @@ class ZedCamera:
         else:
             init_params.depth_mode = sl.DEPTH_MODE.NONE
 
+        init_params.set_from_camera_id(self.id)
         err = self.camera.open(init_params)
         if err != sl.ERROR_CODE.SUCCESS:
             camera_infos = find_cameras()
