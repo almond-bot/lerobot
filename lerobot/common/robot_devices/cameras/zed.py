@@ -222,7 +222,7 @@ class ZedCamera:
         self.fps = config.fps
         self.use_depth = config.use_depth
         self.mock = config.mock
-        self.channels = 4
+        self.channels = config.channels
 
         self.camera = None
         self.is_connected = False
