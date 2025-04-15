@@ -340,7 +340,7 @@ class ZedCamera:
                     f"Can't capture depth map with expected height and width ({self.height} x {self.width}). ({h} x {w}) returned instead."
                 )
 
-            depth_map = depth_map.get_data()
+            depth_map = depth_map.get_data().reshape(self.capture_height, self.capture_width, 1)
 
             return left, right, depth_map
         else:

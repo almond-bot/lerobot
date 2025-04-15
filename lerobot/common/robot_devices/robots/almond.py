@@ -239,28 +239,30 @@ class AlmondRobot:
                     "info": None,
                 }
 
-            key = f"observation.images.{cam_key}"
-            cam_ft[key] = {
-                "shape": (cam.height, cam.width, cam.channels),
-                "names": ["height", "width", "channels"],
-                "info": None,
-            }
+            keys = [f"observation.images.{cam_key}.{side}" for side in ["left", "right"]]
+            for key in keys:
+                cam_ft[key] = {
+                    "shape": (cam.height, cam.width, cam.channels),
+                    "names": ["height", "width", "channels"],
+                    "info": None,
+                }
         return cam_ft
 
     @property
     def motor_features(self) -> dict:
-        action_names = ["j1.dir", "j2.dir", "j3.dir", "j4.dir", "j5.dir", "j6.dir"]
-        state_names = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos"]
+        action_keys = self.get_action_state(keys_only=True)
+        state_keys = self.get_observation_state(keys_only=True)
+
         return {
             "action": {
                 "dtype": "float32",
-                "shape": (len(action_names),),
-                "names": action_names,
+                "shape": (len(action_keys),),
+                "names": action_keys,
             },
             "observation.state": {
                 "dtype": "float32",
-                "shape": (len(state_names),),
-                "names": state_names,
+                "shape": (len(state_keys),),
+                "names": state_keys,
             },
         }
 
