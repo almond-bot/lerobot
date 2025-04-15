@@ -250,10 +250,10 @@ class ZedCamera:
             init_params.camera_resolution = sl.RESOLUTION.HD1200
         elif self.height == 1080:
             init_params.camera_resolution = sl.RESOLUTION.HD1080
-        elif self.height == 720:
-            init_params.camera_resolution = sl.RESOLUTION.HD720
+        elif self.height == 600:
+            init_params.camera_resolution = sl.RESOLUTION.SVGA
         else:
-            raise ValueError(f"Expected height to be 1080 or 720, but {self.height} is provided.")
+            raise ValueError(f"Expected height to be 1200, 1080, or 600, but {self.height} is provided.")
 
         init_params.camera_fps = self.fps
 
@@ -411,19 +411,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--fps",
         type=int,
-        default=30,
+        default=60,
         help="Set the number of frames recorded per seconds for all cameras. If not provided, use the default fps of each camera.",
     )
     parser.add_argument(
         "--width",
         type=int,
-        default=3840,
+        default=1920,
         help="Set the width for all cameras. If not provided, use the default width of each camera.",
     )
     parser.add_argument(
         "--height",
         type=int,
-        default=1080,
+        default=600,
         help="Set the height for all cameras. If not provided, use the default height of each camera.",
     )
     parser.add_argument(
