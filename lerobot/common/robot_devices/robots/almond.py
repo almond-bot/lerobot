@@ -58,6 +58,7 @@ class AlmondRobot:
         self.cameras = make_cameras_from_configs(self.config.cameras)
         self.is_connected = False
         self.logs = {}
+        self.server = None  # Store reference to uvicorn server
 
         self.arm_state: RobotStatePkg | None = None
         self.arm_state_stop_event = Event()
@@ -298,7 +299,9 @@ class AlmondRobot:
         send_action_thread.start()
 
         # Start the web server in a separate thread
-        webserver_thread = Thread(target=uvicorn.run, args=(self.app,), kwargs={"host": "0.0.0.0", "port": 8000})
+        config = uvicorn.Config(self.app, host="0.0.0.0", port=8000)
+        self.server = uvicorn.Server(config)
+        webserver_thread = Thread(target=self.server.run)
         webserver_thread.daemon = True
         webserver_thread.start()
 
@@ -420,6 +423,11 @@ class AlmondRobot:
             return
 
         self.arm_state_stop_event.set()
+
+        # Stop the webserver if it exists
+        if self.server is not None:
+            self.server.should_exit = True
+            self.server = None
 
         self.arm.ServoMoveEnd()
         self.arm.DragTeachSwitch(0)
