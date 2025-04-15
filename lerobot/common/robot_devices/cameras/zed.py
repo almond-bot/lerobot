@@ -25,8 +25,8 @@ import time
 from pathlib import Path
 from threading import Thread
 
-import numpy as np
 from PIL import Image
+import numpy as np
 
 from lerobot.common.robot_devices.cameras.configs import ZedCameraConfig
 from lerobot.common.robot_devices.utils import (
@@ -310,13 +310,14 @@ class ZedCamera:
         image = sl.Mat()
         self.camera.retrieve_image(image, sl.VIEW.SIDE_BY_SIDE)
 
-        frame = image.get_data()
-
-        h, w, _ = frame.shape
+        h = image.get_height()
+        w = image.get_width()
         if h != self.capture_height or w != self.capture_width:
             raise OSError(
                 f"Can't capture color image with expected height and width ({self.height} x {self.width}). ({h} x {w}) returned instead."
             )
+        
+        image = image.get_data()
 
         # log the number of seconds it took to read the image
         self.logs["delta_timestamp_s"] = time.perf_counter() - start_time
@@ -335,9 +336,9 @@ class ZedCamera:
                     f"Can't capture depth map with expected height and width ({self.height} x {self.width}). ({h} x {w}) returned instead."
                 )
 
-            return frame, depth_map
+            return image, depth_map
         else:
-            return frame
+            return image
 
     def read_loop(self):
         while not self.stop_event.is_set():
