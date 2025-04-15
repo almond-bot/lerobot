@@ -319,9 +319,9 @@ class ZedCamera:
             raise OSError(
                 f"Can't capture color image with expected height and width ({self.height} x {self.width}). ({h} x {w}) returned instead."
             )
-        
+
         image = image.get_data()
-        left, right = np.split(image, 2, axis=1)
+        left, right = np.split(image[..., :3], 2, axis=1)  # Remove alpha channel
 
         # log the number of seconds it took to read the image
         self.logs["delta_timestamp_s"] = time.perf_counter() - start_time
