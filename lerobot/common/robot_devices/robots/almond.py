@@ -234,8 +234,8 @@ class AlmondRobot:
             if hasattr(cam, "use_depth") and cam.use_depth:
                 key_depth = f"observation.images.{cam_key}.depth"
                 cam_ft[key_depth] = {
-                    "shape": (cam.height, cam.width),
-                    "names": ["height", "width"],
+                    "shape": (cam.height, cam.width, cam.channels),
+                    "names": ["height", "width", "channels"],
                     "info": None,
                 }
 

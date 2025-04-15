@@ -331,7 +331,7 @@ class ZedCamera:
 
         if self.use_depth:
             depth_map = sl.Mat()
-            self.camera.retrieve_measure(depth_map, sl.MEASURE.DEPTH)
+            self.camera.retrieve_image(depth_map, sl.VIEW.DEPTH)
 
             h = depth_map.get_height()
             w = depth_map.get_width()
