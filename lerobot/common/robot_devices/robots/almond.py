@@ -302,6 +302,8 @@ class AlmondRobot:
         webserver_thread.daemon = True
         webserver_thread.start()
 
+        self.is_connected = True
+
         for name in self.cameras:
             self.cameras[name].connect()
             self.is_connected = self.is_connected and self.cameras[name].is_connected
@@ -311,8 +313,6 @@ class AlmondRobot:
             raise ConnectionError()
 
         self.run_calibration()
-
-        self.is_connected = True
 
     def run_calibration(self) -> None:
         self.arm.MoveJ([0, -135, 135, -180, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
