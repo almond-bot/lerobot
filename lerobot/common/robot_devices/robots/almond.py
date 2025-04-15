@@ -21,8 +21,12 @@ import time
 from dataclasses import replace
 from threading import Thread, Event
 from queue import Queue
+import re
 
 import torch
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+import uvicorn
 
 from lerobot.common.robot_devices.robots.fairino import RPC, RobotStatePkg
 from lerobot.common.robot_devices.robots.configs import AlmondRobotConfig
@@ -35,9 +39,7 @@ def run_async_in_thread(coro: Coroutine):
     finally:
         loop.close()
 
-
 class AlmondRobot:
-
     ARM_IP = "192.168.57.2"
     ARM_STATUS_RATE = 65 # Hz
 
@@ -63,7 +65,54 @@ class AlmondRobot:
         self.action_keys: list[str] | None = None
 
         self.action_queue: Queue[dict[str, float]] = Queue()
-    
+        
+        # Web server setup
+        self.app = FastAPI()
+        self.active_websocket = None
+        self.setup_webserver()
+
+    def setup_webserver(self):
+        # HTML template with a text box and WebSocket connection
+        html = """
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <title>Almond Robot Control</title>
+            </head>
+            <body>
+                <h1>Almond Robot Control</h1>
+                <input type="text" id="commandInput" placeholder="Enter command (e.g., g(position,force))">
+                <button onclick="sendCommand()">Send</button>
+                <div id="status"></div>
+                <script>
+                    var ws = new WebSocket("ws://" + window.location.host + "/ws");
+                    ws.onmessage = function(event) {
+                        document.getElementById("status").innerHTML = "Status: " + event.data;
+                    };
+                    function sendCommand() {
+                        var command = document.getElementById("commandInput").value;
+                        ws.send(command);
+                    }
+                </script>
+            </body>
+        </html>
+        """
+
+        @self.app.get("/")
+        async def get():
+            return HTMLResponse(html)
+
+        @self.app.websocket("/ws")
+        async def websocket_endpoint(websocket: WebSocket):
+            await websocket.accept()
+            self.active_websocket = websocket
+            try:
+                while True:
+                    data = await websocket.receive_text()
+                    self._handle_gripper_command(data)
+            except WebSocketDisconnect:
+                self.active_websocket = None
+
     async def _get_arm_status(self):
         reader, self.stream_writer = await asyncio.open_connection(
             AlmondRobot.ARM_IP, RPC.ROBOT_REALTIME_PORT
@@ -141,6 +190,19 @@ class AlmondRobot:
             except Exception:
                 traceback.print_exc()
 
+    def _handle_gripper_command(self, command: str) -> bool:
+        """Handle gripper commands in the format g(position,force)"""
+
+        match = re.match(r"g\(([0-9.]+),([0-9.]+)\)", command)
+        if match:
+            position = float(match.group(1))
+            force = float(match.group(2))
+
+            self.target_gripper_position = position
+            self.target_gripper_force = force
+
+            self._move_gripper(position, force)
+
     def _move_gripper(self, position: float, force: float):
         self.arm.MoveGripper(1, position, 0, force, 5000, 0, 0, 0, 0, 0)
 
@@ -192,6 +254,11 @@ class AlmondRobot:
 
         send_action_thread = Thread(target=self._send_action)
         send_action_thread.start()
+
+        # Start the web server in a separate thread
+        webserver_thread = Thread(target=uvicorn.run, args=(self.app,), kwargs={"host": "0.0.0.0", "port": 8000})
+        webserver_thread.daemon = True
+        webserver_thread.start()
 
         for name in self.cameras:
             self.cameras[name].connect()
