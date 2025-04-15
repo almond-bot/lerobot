@@ -272,6 +272,8 @@ class AlmondRobot:
 
         self.run_calibration()
 
+        self.is_connected = True
+
     def run_calibration(self) -> None:
         self.arm.MoveJ([0, -135, 135, -180, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
@@ -379,6 +381,9 @@ class AlmondRobot:
         # TODO(aliberts): move robot-specific logs logic here
 
     def disconnect(self) -> None:
+        if not self.is_connected:
+            return
+
         self.arm_state_stop_event.set()
 
         self.arm.ServoMoveEnd()
