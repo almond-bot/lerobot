@@ -42,6 +42,8 @@ def run_async_in_thread(coro: Coroutine):
 class AlmondRobot:
     ARM_IP = "192.168.57.2"
     ARM_STATUS_RATE = 65 # Hz
+    ARM_VELOCITY = 50
+    ARM_ACCELERATION = 20
 
     def __init__(self, config: AlmondRobotConfig | None = None, **kwargs):
         super().__init__()
@@ -217,7 +219,7 @@ class AlmondRobot:
                 self.arm.ServoMoveStart()
 
             joint_pos = [action[f"j{i}.dir"] * joint_direction_multiplier for i in range(1, 7)]
-            self.arm.ServoJ(joint_pos, cmdT=1 / AlmondRobot.ARM_STATUS_RATE)
+            self.arm.ServoJ(joint_pos, cmdT=1 / AlmondRobot.ARM_STATUS_RATE, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
             if last_action is not None and (last_action["gripper.pos"] != action["gripper.pos"] or last_action["gripper.for"] != action["gripper.for"]):
                 move_gripper_thread = Thread(target=self._move_gripper, args=(action["gripper.pos"], action["gripper.for"]))
@@ -271,8 +273,7 @@ class AlmondRobot:
         self.run_calibration()
 
     def run_calibration(self) -> None:
-        # TODO(shawnpatel): set after experiment
-        pass
+        self.arm.MoveJ([0, -135, 135, -180, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
     def get_observation_state(self) -> dict:
         return {
