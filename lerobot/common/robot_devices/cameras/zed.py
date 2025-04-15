@@ -104,9 +104,16 @@ def save_images_from_cameras(
     cameras = []
     for id in ids:
         print(f"{id=}")
-        config = ZedCameraConfig(
-            id=id, fps=fps, width=width, height=height, mock=mock
-        )
+
+        config_kwargs = {"id": id, "mock": mock}
+        if fps is not None:
+            config_kwargs["fps"] = fps
+        if width is not None:
+            config_kwargs["width"] = width
+        if height is not None:
+            config_kwargs["height"] = height
+
+        config = ZedCameraConfig(**config_kwargs)
         camera = ZedCamera(config)
         camera.connect()
         print(
