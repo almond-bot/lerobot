@@ -128,8 +128,8 @@ class ZedCameraConfig(CameraConfig):
 
     id: int
     fps: int = 30
-    width: int = 3840
-    height: int = 1080
+    width: int = 960
+    height: int = 600
     channels: int = 4
     use_depth: bool = False
     mock: bool = False

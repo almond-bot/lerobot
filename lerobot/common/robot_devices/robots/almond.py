@@ -375,11 +375,14 @@ class AlmondRobot:
             images[name] = self.cameras[name].async_read()
 
             if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
-                rgb, depth = images[name]
-                images[name] = torch.from_numpy(rgb)
+                left, right, depth = images[name]
+                images[f"{name}.left"] = torch.from_numpy(left)
+                images[f"{name}.right"] = torch.from_numpy(right)
                 images[f"{name}.depth"] = torch.from_numpy(depth)
             else:
-                images[name] = torch.from_numpy(images[name])
+                left, right = images[name]
+                images[f"{name}.left"] = torch.from_numpy(left)
+                images[f"{name}.right"] = torch.from_numpy(right)
 
             self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
             self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
@@ -389,7 +392,8 @@ class AlmondRobot:
         obs_dict["observation.state"] = observation
         action_dict["action"] = action
         for name in self.cameras:
-            obs_dict[f"observation.images.{name}"] = images[name]
+            obs_dict[f"observation.images.{name}.left"] = images[f"{name}.left"]
+            obs_dict[f"observation.images.{name}.right"] = images[f"{name}.right"]
             if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
                 obs_dict[f"observation.images.{name}.depth"] = images[f"{name}.depth"]
 
@@ -410,11 +414,14 @@ class AlmondRobot:
             images[name] = self.cameras[name].async_read()
 
             if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
-                rgb, depth = images[name]
-                images[name] = torch.from_numpy(rgb)
+                left, right, depth = images[name]
+                images[f"{name}.left"] = torch.from_numpy(left)
+                images[f"{name}.right"] = torch.from_numpy(right)
                 images[f"{name}.depth"] = torch.from_numpy(depth)
             else:
-                images[name] = torch.from_numpy(images[name])
+                left, right = images[name]
+                images[f"{name}.left"] = torch.from_numpy(left)
+                images[f"{name}.right"] = torch.from_numpy(right)
 
             self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
             self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
@@ -423,7 +430,8 @@ class AlmondRobot:
         obs_dict = {}
         obs_dict["observation.state"] = observation
         for name in self.cameras:
-            obs_dict[f"observation.images.{name}"] = images[name]
+            obs_dict[f"observation.images.{name}.left"] = images[f"{name}.left"]
+            obs_dict[f"observation.images.{name}.right"] = images[f"{name}.right"]
             if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
                 obs_dict[f"observation.images.{name}.depth"] = images[f"{name}.depth"]
 

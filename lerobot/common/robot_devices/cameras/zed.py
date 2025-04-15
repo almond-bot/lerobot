@@ -132,10 +132,12 @@ def save_images_from_cameras(
                 for camera in cameras:
                     # If we use async_read when fps is None, the loop will go full speed, and we will end up
                     # saving the same images from the cameras multiple times until the RAM/disk is full.
-                    image = camera.read() if fps is None else camera.async_read()
-                    if image is None:
+                    images = camera.read() if fps is None else camera.async_read()
+                    if images is None:
                         print("No Frame")
 
+                    left, right = images
+                    image = np.concatenate([left, right], axis=1)
                     bgr_converted_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
                     executor.submit(
@@ -281,7 +283,7 @@ class ZedCamera:
 
         self.is_connected = True
 
-    def read(self) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    def read(self) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Read a frame from the camera returned in the format height x width x channels (e.g. 480 x 640 x 3)
         of type `np.uint8`, contrarily to the pytorch format which is float channel first.
 
@@ -318,6 +320,7 @@ class ZedCamera:
             )
         
         image = image.get_data()
+        left, right = np.split(image, 2, axis=1)
 
         # log the number of seconds it took to read the image
         self.logs["delta_timestamp_s"] = time.perf_counter() - start_time
@@ -331,16 +334,16 @@ class ZedCamera:
 
             h = depth_map.get_height()
             w = depth_map.get_width()
-            if h != self.capture_height or w != self.capture_width / 2:
+            if h != self.capture_height or w != self.capture_width:
                 raise OSError(
                     f"Can't capture depth map with expected height and width ({self.height} x {self.width}). ({h} x {w}) returned instead."
                 )
 
             depth_map = depth_map.get_data()
 
-            return image, depth_map
+            return left, right, depth_map
         else:
-            return image
+            return left, right
 
     def read_loop(self):
         while not self.stop_event.is_set():
@@ -420,7 +423,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--width",
         type=int,
-        default=1920,
+        default=960,
         help="Set the width for all cameras. If not provided, use the default width of each camera.",
     )
     parser.add_argument(

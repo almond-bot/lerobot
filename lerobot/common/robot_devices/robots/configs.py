@@ -627,7 +627,7 @@ class AlmondRobotConfig(RobotConfig):
             "arm": ZedCameraConfig(
                 id=0,
                 fps=60,
-                width=1920,
+                width=960,
                 height=600,
                 use_depth=True,
             ),
