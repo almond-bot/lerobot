@@ -185,6 +185,11 @@ def calibrate(robot: Robot, cfg: CalibrateControlConfig):
         if not robot.is_homed():
             robot.home()
         return
+    elif robot.robot_type.startswith("almond"):
+        if not robot.is_connected:
+            robot.connect()
+        robot.run_calibration()
+        return
 
     arms = robot.available_arms if cfg.arms is None else cfg.arms
     unknown_arms = [arm_id for arm_id in arms if arm_id not in robot.available_arms]
