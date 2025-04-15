@@ -314,7 +314,7 @@ class ZedCamera:
 
         h = image.get_height()
         w = image.get_width()
-        if h != self.capture_height or w != self.capture_width:
+        if h != self.capture_height or w != self.capture_width * 2:
             raise OSError(
                 f"Can't capture color image with expected height and width ({self.height} x {self.width}). ({h} x {w}) returned instead."
             )
