@@ -28,6 +28,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import uvicorn
 
+from lerobot.common.robot_devices.cameras.utils import make_cameras_from_configs
 from lerobot.common.robot_devices.robots.fairino import RPC, RobotStatePkg
 from lerobot.common.robot_devices.robots.configs import AlmondRobotConfig
 
@@ -54,7 +55,7 @@ class AlmondRobot:
             self.config = replace(config, **kwargs)
 
         self.robot_type = self.config.type
-        self.cameras = self.config.cameras
+        self.cameras = make_cameras_from_configs(self.config.cameras)
         self.is_connected = False
         self.logs = {}
 
