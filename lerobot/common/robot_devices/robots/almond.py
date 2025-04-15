@@ -335,9 +335,9 @@ class AlmondRobot:
         if keys_only:
             return keys
         
-        values = [self.arm_state.jt_cur_pos[i] for i in range(6)]
-        values.append(self.arm_state.gripper_position)
-        values.append(self.arm_state.gripper_current)
+        values = [float(self.arm_state.jt_cur_pos[i]) for i in range(6)]
+        values.append(float(self.arm_state.gripper_position))
+        values.append(float(self.arm_state.gripper_current))
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
@@ -346,9 +346,9 @@ class AlmondRobot:
         if keys_only:
             return keys
         
-        values = [1 if self.arm_state.actual_qd[i] > 0 else -1 for i in range(6)]
-        values.append(self.target_gripper_position)
-        values.append(self.target_gripper_force)
+        values = [float(1) if self.arm_state.actual_qd[i] > 0 else float(-1) for i in range(6)]
+        values.append(float(self.target_gripper_position))
+        values.append(float(self.target_gripper_force))
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
