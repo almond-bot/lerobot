@@ -328,13 +328,15 @@ class ZedCamera:
         if self.use_depth:
             depth_map = sl.Mat()
             self.camera.retrieve_measure(depth_map, sl.MEASURE.DEPTH)
-            depth_map = depth_map.get_data()
 
-            h, w = depth_map.shape
-            if h != self.capture_height or w != self.capture_width:
+            h = depth_map.get_height()
+            w = depth_map.get_width()
+            if h != self.capture_height or w != self.capture_width / 2:
                 raise OSError(
                     f"Can't capture depth map with expected height and width ({self.height} x {self.width}). ({h} x {w}) returned instead."
                 )
+
+            depth_map = depth_map.get_data()
 
             return image, depth_map
         else:
