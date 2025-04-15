@@ -631,11 +631,5 @@ class AlmondRobotConfig(RobotConfig):
                 height=1080,
                 use_depth=True,
             ),
-            "phone": OpenCVCameraConfig(
-                camera_index=1,
-                fps=30,
-                width=640,
-                height=480,
-            ),
         }
     )
