@@ -230,7 +230,8 @@ class ZedCamera:
         self.is_connected = False
         self.thread = None
         self.stop_event = None
-        self.color_image = None
+        self.left_image = None
+        self.right_image = None
         self.depth_map = None
         self.logs = {}
 
@@ -348,9 +349,9 @@ class ZedCamera:
     def read_loop(self):
         while not self.stop_event.is_set():
             if self.use_depth:
-                self.color_image, self.depth_map = self.read()
+                self.left_image, self.right_image, self.depth_map = self.read()
             else:
-                self.color_image = self.read()
+                self.left_image, self.right_image = self.read()
 
     def async_read(self):
         """Access the latest color image"""
@@ -366,7 +367,7 @@ class ZedCamera:
             self.thread.start()
 
         num_tries = 0
-        while self.color_image is None:
+        while self.left_image is None or self.right_image is None:
             # TODO(rcadene, aliberts): zed has diverged compared to opencv over here
             num_tries += 1
             time.sleep(1 / self.fps)
@@ -376,9 +377,9 @@ class ZedCamera:
                 )
 
         if self.use_depth:
-            return self.color_image, self.depth_map
+            return self.left_image, self.right_image, self.depth_map
         else:
-            return self.color_image
+            return self.left_image, self.right_image
 
     def disconnect(self):
         if not self.is_connected:
