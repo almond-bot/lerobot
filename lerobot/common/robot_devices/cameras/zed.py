@@ -305,18 +305,31 @@ class ZedCamera:
         if err != sl.ERROR_CODE.SUCCESS:
             raise OSError(f"Can't capture frame from ZedCamera({self.id}).")
         
-        image = sl.Mat()
-        self.camera.retrieve_image(image, sl.VIEW.SIDE_BY_SIDE)
+        # Get left and right images separately instead of side-by-side
+        left_mat = sl.Mat()
+        right_mat = sl.Mat()
+        self.camera.retrieve_image(left_mat, sl.VIEW.LEFT)
+        self.camera.retrieve_image(right_mat, sl.VIEW.RIGHT)
 
-        h = image.get_height()
-        w = image.get_width()
-        if h != self.capture_height or w != self.capture_width * 2:
+        h_left = left_mat.get_height()
+        w_left = left_mat.get_width()
+        h_right = right_mat.get_height()
+        w_right = right_mat.get_width()
+
+        if (h_left != self.capture_height or w_left != self.capture_width or 
+            h_right != self.capture_height or w_right != self.capture_width):
             raise OSError(
-                f"Can't capture color image with expected height and width ({self.height} x {self.width}). ({h} x {w}) returned instead."
+                f"Can't capture images with expected dimensions ({self.height} x {self.width}). "
+                f"Left: ({h_left} x {w_left}), Right: ({h_right} x {w_right})"
             )
 
-        image = image.get_data()
-        left, right = np.split(image[..., :3], 2, axis=1)  # Remove alpha channel
+        # Get image data and ensure it's contiguous
+        left = left_mat.get_data()
+        right = right_mat.get_data()
+
+        # Remove alpha channel
+        left = left[..., :3]
+        right = right[..., :3]
 
         # log the number of seconds it took to read the image
         self.logs["delta_timestamp_s"] = time.perf_counter() - start_time
@@ -325,21 +338,24 @@ class ZedCamera:
         self.logs["timestamp_utc"] = capture_timestamp_utc()
 
         if self.use_depth:
-            depth_map = sl.Mat()
-            self.camera.retrieve_image(depth_map, sl.VIEW.DEPTH)
+            depth_mat = sl.Mat()
+            self.camera.retrieve_measure(depth_mat, sl.MEASURE.DEPTH)  # Use MEASURE.DEPTH instead of VIEW.DEPTH
 
-            h = depth_map.get_height()
-            w = depth_map.get_width()
-            if h != self.capture_height or w != self.capture_width:
+            h_depth = depth_mat.get_height()
+            w_depth = depth_mat.get_width()
+            if h_depth != self.capture_height or w_depth != self.capture_width:
                 raise OSError(
-                    f"Can't capture depth map with expected height and width ({self.height} x {self.width}). ({h} x {w}) returned instead."
+                    f"Can't capture depth map with expected dimensions ({self.height} x {self.width}). "
+                    f"Got ({h_depth} x {w_depth})"
                 )
 
-            depth_map = depth_map.get_data()[..., :3]  # Remove alpha channel
+            depth_data = depth_mat.get_data()
+            depth_data = depth_data[..., :3] # Remove alpha channel
 
-            return left, right, depth_map
-        else:
-            return left, right
+
+            return left, right, depth_data
+
+        return left, right
 
     def read_loop(self):
         while not self.stop_event.is_set():
