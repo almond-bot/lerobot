@@ -377,6 +377,7 @@ class AlmondRobot:
         self.arm.DragTeachSwitch(1)
 
     def run_calibration(self) -> None:
+        self.arm.DragTeachSwitch(0)
         self.arm.MoveJ([0, -135, 65, -90, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
     def get_observation_state(self, keys_only: bool = False) -> dict:
