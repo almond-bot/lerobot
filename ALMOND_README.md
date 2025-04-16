@@ -19,6 +19,9 @@ Modifying LeRobot to teleoperate, collect data, and train on Almond Bot.
 
 ## Using Scripts
 - Turn on the FR5 and make sure the Jetson is connectd to the control box.
+- Plug the split barrel jack connector to both the Jetson and the ZED Capture Link card.
+- Ensure the ZED is connected to the Capture Link card.
+- Turn on the Jetson (a green light will illuminate around the power button.)
 - `ssh almond@almond-jetson.local` pw: almond
 - To get a hang of using the scripts and controlling the FR5, start by running `./almond/teleop.sh`.
     - Ensure you open [localhost:8000](http://localhost:8000) to access the keyboard controller.
