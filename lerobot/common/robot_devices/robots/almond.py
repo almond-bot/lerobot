@@ -100,11 +100,11 @@ class AlmondRobot:
                 <h1>Almond Robot Control</h1>
                 <div class="slider-container">
                     <label class="slider-label">Gripper Position: <span class="slider-value" id="positionValue">0</span>%</label>
-                    <input type="range" id="positionSlider" min="0" max="100" step="20" value="0">
+                    <input type="range" id="positionSlider" min="0" max="100" step="10" value="0">
                 </div>
                 <div class="slider-container">
                     <label class="slider-label">Gripper Force: <span class="slider-value" id="forceValue">0</span>%</label>
-                    <input type="range" id="forceSlider" min="0" max="100" step="20" value="0">
+                    <input type="range" id="forceSlider" min="0" max="100" step="10" value="0">
                 </div>
                 <div id="status"></div>
                 <script>
