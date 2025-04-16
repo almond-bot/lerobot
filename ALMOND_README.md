@@ -10,6 +10,7 @@ Modifying LeRobot to teleoperate, collect data, and train on Almond Bot.
 
 ## Installation
 - Turn on the FR5 and make sure the Jetson is connectd to the control box.
+- `ssh almond@almond-jetson.local` pw: almond
 - Clone this repo on the Jetson.
 - Install with `uv sync --extras "almond" --extras "pi0"`
 - Then install the ZED Python SDK and point the location to `.venv/bin/python3` (TODO: we have to do this everything we use `uv` to update the packages since it's not tracked by `uv`)
@@ -18,6 +19,7 @@ Modifying LeRobot to teleoperate, collect data, and train on Almond Bot.
 
 ## Using Scripts
 - Turn on the FR5 and make sure the Jetson is connectd to the control box.
+- `ssh almond@almond-jetson.local` pw: almond
 - To get a hang of using the scripts and controlling the FR5, start by running `./almond/teleop.sh`.
     - Ensure you open [localhost:8000](http://localhost:8000) to access the keyboard controller.
 - Once you are comfortable controlling the robot, run `./almond/record.sh` to start collecting data.
