@@ -27,6 +27,7 @@ from threading import Thread
 
 from PIL import Image
 import numpy as np
+import pyzed.sl as sl
 
 from lerobot.common.robot_devices.cameras.configs import ZedCameraConfig
 from lerobot.common.robot_devices.utils import (
@@ -44,8 +45,6 @@ def find_cameras(raise_when_empty=True, mock=False) -> list[dict]:
     """
     if mock:
         raise NotImplementedError("Mocking is not implemented for Zed cameras.")
-
-    import pyzed.sl as sl
 
     cameras = []
     for camera in sl.Camera.get_device_list():
@@ -84,7 +83,7 @@ def save_images_from_cameras(
     fps=None,
     width=None,
     height=None,
-    record_time_s=2,
+    record_time_s=0.5,
     mock=False,
 ):
     """
@@ -244,8 +243,6 @@ class ZedCamera:
         if self.mock:
             raise NotImplementedError("Mocking is not implemented for Zed cameras.")
 
-        import pyzed.sl as sl
-
         self.camera = sl.Camera()
 
         init_params = sl.InitParameters()
@@ -301,8 +298,6 @@ class ZedCamera:
 
         if self.mock:
             raise NotImplementedError("Mocking is not implemented for Zed cameras.")
-
-        import pyzed.sl as sl
 
         start_time = time.perf_counter()
 
@@ -442,7 +437,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--record-time-s",
         type=float,
-        default=2.0,
+        default=0.5,
         help="Set the number of seconds used to record the frames. By default, 2 seconds.",
     )
     args = parser.parse_args()
