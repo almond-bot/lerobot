@@ -341,7 +341,7 @@ class ZedCamera:
 
         if self.use_depth:
             depth_mat = sl.Mat()
-            self.camera.retrieve_measure(depth_mat, sl.MEASURE.DEPTH)  # Use MEASURE.DEPTH instead of VIEW.DEPTH
+            self.camera.retrieve_image(depth_mat, sl.VIEW.DEPTH)
 
             h_depth = depth_mat.get_height()
             w_depth = depth_mat.get_width()
@@ -351,11 +351,11 @@ class ZedCamera:
                     f"Got ({h_depth} x {w_depth})"
                 )
 
-            depth_data = depth_mat.get_data(deep_copy=True)
+            depth = depth_mat.get_data(deep_copy=True)
             depth_mat.free()
-            depth_data = depth_data[..., :3] # Remove alpha channel
+            depth = depth[..., :3] # Remove alpha channel
 
-            return left, right, depth_data
+            return left, right, depth
 
         return left, right
 

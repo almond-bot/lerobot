@@ -626,7 +626,7 @@ class AlmondRobotConfig(RobotConfig):
         default_factory=lambda: {
             "arm": ZedCameraConfig(
                 id=0,
-                fps=60,
+                fps=30,
                 width=960,
                 height=600,
                 use_depth=True,
