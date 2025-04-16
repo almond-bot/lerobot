@@ -183,7 +183,11 @@ class AlmondRobot:
                         var key = event.key.toUpperCase();
                         if ("WASDQEIJKLUO".includes(key)) {
                             activeKeys.delete(key);
-                            sendArmCommand();
+                            if (activeKeys.size === 0) {
+                                ws.send("a()");
+                            } else {
+                                sendArmCommand();
+                            }
                         }
                     });
 
@@ -318,9 +322,9 @@ class AlmondRobot:
 
     def _handle_arm_command(self, command: str) -> None:
         """Handle arm movement commands in the format a(key1,key2,...)"""
-        match = re.match(r"a\(([A-Z,]+)\)", command)
+        match = re.match(r"a\(([A-Z,]*)\)", command)
         if match:
-            keys = match.group(1).split(",")
+            keys = match.group(1).split(",") if match.group(1) else []
             # Create a dictionary to map keys to joint velocities
             # W/S: forward/backward (joint 1)
             # A/D: left/right (joint 2)
@@ -362,13 +366,13 @@ class AlmondRobot:
                 self.arm.DragTeachSwitch(0)
                 self.arm.ServoMoveStart()
 
-            current_joint_pos = self.arm_state.jt_cur_pos
-            if action is None:
-                joint_pos = current_joint_pos
-            else:
-                joint_pos = [d * AlmondRobot.JOINT_DIRECTION_MULTIPLIER + p for (d, p) in zip(action, current_joint_pos)]
+            tool_pos = [0] * 6
+            if action is not None:
+                tool_pos = [d * AlmondRobot.JOINT_DIRECTION_MULTIPLIER for d in action]
+            elif last_action is not None:
+                tool_pos = [d * AlmondRobot.JOINT_DIRECTION_MULTIPLIER for d in last_action]
 
-            self.arm.ServoJ(joint_pos, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
+            self.arm.ServoCart(2, tool_pos, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
             last_action = action
 
