@@ -20,7 +20,7 @@ from typing import Coroutine
 import time
 from dataclasses import replace
 from threading import Thread, Event
-from queue import Queue
+from queue import Queue, Empty
 import re
 
 import torch
@@ -45,6 +45,7 @@ class AlmondRobot:
     ARM_STATUS_RATE = 65 # Hz
     ARM_VELOCITY = 50
     ARM_ACCELERATION = 20
+    JOINT_DIRECTION_MULTIPLIER = 0.01
 
     def __init__(self, config: AlmondRobotConfig | None = None, **kwargs):
         super().__init__()
@@ -67,7 +68,8 @@ class AlmondRobot:
         self.target_gripper_position = 0
         self.target_gripper_force = 0
 
-        self.action_queue: Queue[dict[str, float]] = Queue()
+        self.teleop_action_queue: Queue[list[int]] = Queue()
+        self.model_action_queue: Queue[dict[str, float]] = Queue()
         
         # Web server setup
         self.app = FastAPI()
@@ -95,10 +97,27 @@ class AlmondRobot:
                         width: 40px;
                         text-align: right;
                     }
+                    .keyboard-controls {
+                        margin: 20px;
+                        padding: 10px;
+                        border: 1px solid #ccc;
+                        border-radius: 5px;
+                    }
+                    .keyboard-controls h3 {
+                        margin-top: 0;
+                    }
+                    .keyboard-controls p {
+                        margin: 5px 0;
+                    }
                 </style>
             </head>
             <body>
                 <h1>Almond Robot Control</h1>
+                <div class="keyboard-controls">
+                    <h3>Keyboard Controls</h3>
+                    <p>WASDQE - Move tool position</p>
+                    <p>IJKLUO - Rotate tool</p>
+                </div>
                 <div class="slider-container">
                     <label class="slider-label">Gripper Position: <span class="slider-value" id="positionValue">0</span>%</label>
                     <input type="range" id="positionSlider" min="0" max="100" step="10" value="0">
@@ -116,6 +135,7 @@ class AlmondRobot:
                 <script>
                     var ws = new WebSocket("ws://" + window.location.host + "/ws");
                     var lastPosition = 0;
+                    var activeKeys = new Set();
                     
                     ws.onmessage = function(event) {
                         document.getElementById("status").innerHTML = "Status: " + event.data;
@@ -140,6 +160,32 @@ class AlmondRobot:
                         document.getElementById("positionValue").textContent = position;
                         lastPosition = position;
                     }
+
+                    function sendArmCommand() {
+                        if (activeKeys.size > 0) {
+                            var command = "a(";
+                            var keys = Array.from(activeKeys);
+                            command += keys.join(",");
+                            command += ")";
+                            ws.send(command);
+                        }
+                    }
+
+                    document.addEventListener("keydown", function(event) {
+                        var key = event.key.toUpperCase();
+                        if ("WASDQEIJKLUO".includes(key)) {
+                            activeKeys.add(key);
+                            sendArmCommand();
+                        }
+                    });
+
+                    document.addEventListener("keyup", function(event) {
+                        var key = event.key.toUpperCase();
+                        if ("WASDQEIJKLUO".includes(key)) {
+                            activeKeys.delete(key);
+                            sendArmCommand();
+                        }
+                    });
 
                     var positionSlider = document.getElementById("positionSlider");
                     var forceSlider = document.getElementById("forceSlider");
@@ -170,7 +216,10 @@ class AlmondRobot:
             try:
                 while True:
                     data = await websocket.receive_text()
-                    self._handle_gripper_command(data)
+                    if data.startswith("g("):
+                        self._handle_gripper_command(data)
+                    elif data.startswith("a("):
+                        self._handle_arm_command(data)
             except WebSocketDisconnect:
                 self.active_websocket = None
 
@@ -267,27 +316,93 @@ class AlmondRobot:
     def _move_gripper(self, position: float, force: float):
         self.arm.MoveGripper(1, position, 0, force, 5000, 0, 0, 0, 0, 0)
 
-    def _send_action(self):
+    def _handle_arm_command(self, command: str) -> None:
+        """Handle arm movement commands in the format a(key1,key2,...)"""
+        match = re.match(r"a\(([A-Z,]+)\)", command)
+        if match:
+            keys = match.group(1).split(",")
+            # Create a dictionary to map keys to joint velocities
+            # W/S: forward/backward (joint 1)
+            # A/D: left/right (joint 2)
+            # Q/E: up/down (joint 3)
+            # I/K: rotate around X (joint 4)
+            # J/L: rotate around Y (joint 5)
+            # U/O: rotate around Z (joint 6)
+            joint_dirs = [0] * 6
+            for key in keys:
+                if key == "W": joint_dirs[0] = 1
+                elif key == "S": joint_dirs[0] = -1
+                elif key == "A": joint_dirs[1] = 1
+                elif key == "D": joint_dirs[1] = -1
+                elif key == "Q": joint_dirs[2] = 1
+                elif key == "E": joint_dirs[2] = -1
+                elif key == "I": joint_dirs[3] = 1
+                elif key == "K": joint_dirs[3] = -1
+                elif key == "J": joint_dirs[4] = 1
+                elif key == "L": joint_dirs[4] = -1
+                elif key == "U": joint_dirs[5] = 1
+                elif key == "O": joint_dirs[5] = -1
+            
+            # Create action dictionary with joint velocities
+            self.teleop_action_queue.put(joint_dirs)
+
+    def _send_teleop_action(self):
         last_action = None
-        joint_direction_multiplier = 0.01
 
         while not self.arm_state_stop_event.is_set():
-            action = self.action_queue.get()
+            try:
+                action = self.teleop_action_queue.get(block=False)
+            except Empty:
+                if last_action is None:
+                    continue
 
-            if last_action is None:
+                action = None
+
+            current_joint_pos = self.arm_state.jt_cur_pos
+            if action is None:
+                joint_pos = current_joint_pos
+            else:
+                joint_pos = [d * AlmondRobot.JOINT_DIRECTION_MULTIPLIER + p for (d, p) in zip(action, current_joint_pos)]
+
+            self.arm.ServoJ(joint_pos, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
+
+            last_action = action
+
+            time.sleep(0.008)
+
+    def _send_model_action(self):
+        last_action = None
+
+        while not self.arm_state_stop_event.is_set():
+            try:
+                action = self.model_action_queue.get(block=False)
+            except Empty:
+                if last_action is None:
+                    continue
+
+                action = None
+
+            if action is not None and last_action is None:
                 self.arm.DragTeachSwitch(0)
                 self.arm.ServoMoveStart()
 
-            joint_vels = [action[f"j{i}.vel"] for i in range(1, 7)]
-            joint_dirs = [0 if abs(v) < 0.05 else 1 if v > 0 else -1 for v in joint_vels]
-            joint_pos = [d * joint_direction_multiplier for d in joint_dirs]
+            current_joint_pos = self.arm_state.jt_cur_pos
+            if action is None:
+                joint_pos = current_joint_pos
+            else:
+                joint_vels = [action[f"j{i}.vel"] for i in range(1, 7)]
+                joint_dirs = [0 if abs(v) < 0.05 else 1 if v > 0 else -1 for v in joint_vels]
+                joint_pos = [d * AlmondRobot.JOINT_DIRECTION_MULTIPLIER + p for (d, p) in zip(joint_dirs, current_joint_pos)]
+
             self.arm.ServoJ(joint_pos, cmdT=1 / AlmondRobot.ARM_STATUS_RATE, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
-            if last_action is not None and (last_action["gripper.pos"] != action["gripper.pos"] or last_action["gripper.for"] != action["gripper.for"]):
+            if action is not None and last_action is not None and (last_action["gripper.pos"] != action["gripper.pos"] or last_action["gripper.for"] != action["gripper.for"]):
                 move_gripper_thread = Thread(target=self._move_gripper, args=(action["gripper.pos"], action["gripper.for"]))
                 move_gripper_thread.start()
 
             last_action = action
+
+            time.sleep(1 / AlmondRobot.ARM_STATUS_RATE)
 
     @property
     def camera_features(self) -> dict:
@@ -365,8 +480,11 @@ class AlmondRobot:
         get_arm_status_thread = Thread(target=run_async_in_thread, args=(self._get_arm_status(),))
         get_arm_status_thread.start()
 
-        send_action_thread = Thread(target=self._send_action)
-        send_action_thread.start()
+        send_model_action_thread = Thread(target=self._send_model_action)
+        send_model_action_thread.start()
+
+        send_teleop_action_thread = Thread(target=self._send_teleop_action)
+        send_teleop_action_thread.start()
 
         # Start the web server in a separate thread
         config = uvicorn.Config(self.app, host="0.0.0.0", port=8000)
