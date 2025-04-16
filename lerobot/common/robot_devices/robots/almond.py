@@ -338,8 +338,8 @@ class AlmondRobot:
             return keys
         
         values = [float(self.arm_state.jt_cur_pos[i]) if self.arm_state is not None else float(0) for i in range(6)]
-        values.append(float(self.arm_state.gripper_position))
-        values.append(float(self.arm_state.gripper_current))
+        values.append(float(self.arm_state.gripper_position) if self.arm_state is not None else float(0))
+        values.append(float(self.arm_state.gripper_current) if self.arm_state is not None else float(0))
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
