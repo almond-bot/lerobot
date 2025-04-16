@@ -45,7 +45,7 @@ class AlmondRobot:
     ARM_STATUS_RATE = 65 # Hz
     ARM_VELOCITY = 50
     ARM_ACCELERATION = 20
-    JOINT_DIRECTION_MULTIPLIER = 0.01
+    JOINT_DIRECTION_MULTIPLIER = 1
 
     def __init__(self, config: AlmondRobotConfig | None = None, **kwargs):
         super().__init__()
@@ -334,18 +334,18 @@ class AlmondRobot:
             # U/O: rotate around Z (joint 6)
             joint_dirs = [0] * 6
             for key in keys:
-                if key == "W": joint_dirs[0] = 1
-                elif key == "S": joint_dirs[0] = -1
-                elif key == "A": joint_dirs[1] = 1
-                elif key == "D": joint_dirs[1] = -1
-                elif key == "Q": joint_dirs[2] = 1
-                elif key == "E": joint_dirs[2] = -1
+                if key == "W": joint_dirs[1] = -1
+                elif key == "S": joint_dirs[1] = 1
+                elif key == "A": joint_dirs[0] = -1
+                elif key == "D": joint_dirs[0] = 1
+                elif key == "Q": joint_dirs[2] = -1
+                elif key == "E": joint_dirs[2] = 1
                 elif key == "I": joint_dirs[3] = 1
                 elif key == "K": joint_dirs[3] = -1
-                elif key == "J": joint_dirs[4] = 1
-                elif key == "L": joint_dirs[4] = -1
-                elif key == "U": joint_dirs[5] = 1
-                elif key == "O": joint_dirs[5] = -1
+                elif key == "J": joint_dirs[4] = -1
+                elif key == "L": joint_dirs[4] = 1
+                elif key == "U": joint_dirs[5] = -1
+                elif key == "O": joint_dirs[5] = 1
             
             # Create action dictionary with joint velocities
             self.teleop_action_queue.put(joint_dirs)
@@ -372,7 +372,7 @@ class AlmondRobot:
             elif last_action is not None:
                 tool_pos = [d * AlmondRobot.JOINT_DIRECTION_MULTIPLIER for d in last_action]
 
-            self.arm.ServoCart(2, tool_pos, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
+            self.arm.ServoCart(2, tool_pos)
 
             last_action = action
 
