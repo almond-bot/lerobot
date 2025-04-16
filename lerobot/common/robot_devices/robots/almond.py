@@ -358,6 +358,10 @@ class AlmondRobot:
 
                 action = None
 
+            if action is not None and last_action is None:
+                self.arm.DragTeachSwitch(0)
+                self.arm.ServoMoveStart()
+
             current_joint_pos = self.arm_state.jt_cur_pos
             if action is None:
                 joint_pos = current_joint_pos
