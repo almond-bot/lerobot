@@ -218,7 +218,9 @@ class AlmondRobot:
             if last_action is None:
                 self.arm.ServoMoveStart()
 
-            joint_pos = [action[f"j{i}.dir"] * joint_direction_multiplier for i in range(1, 7)]
+            joint_vels = [action[f"j{i}.vel"] for i in range(1, 7)]
+            joint_dirs = [0 if abs(v) < 0.05 else 1 if v > 0 else -1 for v in joint_vels]
+            joint_pos = [d * joint_direction_multiplier for d in joint_dirs]
             self.arm.ServoJ(joint_pos, cmdT=1 / AlmondRobot.ARM_STATUS_RATE, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
             if last_action is not None and (last_action["gripper.pos"] != action["gripper.pos"] or last_action["gripper.for"] != action["gripper.for"]):
@@ -342,11 +344,11 @@ class AlmondRobot:
         return {keys[i]: values[i] for i in range(len(keys))}
 
     def get_action_state(self, keys_only: bool = False) -> dict:
-        keys = ["j1.dir", "j2.dir", "j3.dir", "j4.dir", "j5.dir", "j6.dir", "gripper.pos", "gripper.for"]
+        keys = ["j1.vel", "j2.vel", "j3.vel", "j4.vel", "j5.vel", "j6.vel", "gripper.pos", "gripper.for"]
         if keys_only:
             return keys
         
-        values = [float(0) if abs(self.arm_state.actual_qd[i]) < 0.05 else float(1) if self.arm_state.actual_qd[i] > 0 else float(-1) for i in range(6)]
+        values = [float(self.arm_state.actual_qd[i]) for i in range(6)]
         values.append(float(self.target_gripper_position))
         values.append(float(self.target_gripper_force))
 
