@@ -106,6 +106,12 @@ class AlmondRobot:
                     <label class="slider-label">Gripper Force: <span class="slider-value" id="forceValue">0</span>%</label>
                     <input type="range" id="forceSlider" min="0" max="100" step="10" value="0">
                 </div>
+                <div class="button-container" style="margin: 20px;">
+                    <button onclick="sendPresetCommand(0)">Open (0%)</button>
+                    <button onclick="sendPresetCommand(10)">10%</button>
+                    <button onclick="sendPresetCommand(20)">20%</button>
+                    <button onclick="sendPresetCommand(40)">40%</button>
+                </div>
                 <div id="status"></div>
                 <script>
                     var ws = new WebSocket("ws://" + window.location.host + "/ws");
@@ -126,6 +132,13 @@ class AlmondRobot:
                             ws.send("g(" + position + "," + force + ")");
                             lastPosition = position;
                         }
+                    }
+
+                    function sendPresetCommand(position) {
+                        ws.send("g(" + position + ",100)");
+                        document.getElementById("positionSlider").value = position;
+                        document.getElementById("positionValue").textContent = position;
+                        lastPosition = position;
                     }
 
                     var positionSlider = document.getElementById("positionSlider");
