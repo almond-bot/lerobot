@@ -216,6 +216,7 @@ class AlmondRobot:
             action = self.action_queue.get()
 
             if last_action is None:
+                self.arm.DragTeachSwitch(0)
                 self.arm.ServoMoveStart()
 
             joint_vels = [action[f"j{i}.vel"] for i in range(1, 7)]
@@ -302,8 +303,6 @@ class AlmondRobot:
 
         self.arm.Mode(1)
 
-        self.arm.DragTeachSwitch(1)
-
         get_arm_status_thread = Thread(target=run_async_in_thread, args=(self._get_arm_status(),))
         get_arm_status_thread.start()
 
@@ -328,6 +327,8 @@ class AlmondRobot:
             raise ConnectionError()
 
         self.run_calibration()
+
+        self.arm.DragTeachSwitch(1)
 
     def run_calibration(self) -> None:
         self.arm.MoveJ([0, -135, 135, -180, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
