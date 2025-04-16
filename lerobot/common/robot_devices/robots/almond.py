@@ -74,27 +74,73 @@ class AlmondRobot:
         self.setup_webserver()
 
     def setup_webserver(self):
-        # HTML template with a text box and WebSocket connection
+        # HTML template with sliders for gripper control
         html = """
         <!DOCTYPE html>
         <html>
             <head>
                 <title>Almond Robot Control</title>
+                <style>
+                    .slider-container {
+                        margin: 20px;
+                        width: 300px;
+                    }
+                    .slider-label {
+                        display: block;
+                        margin-bottom: 5px;
+                    }
+                    .slider-value {
+                        display: inline-block;
+                        width: 40px;
+                        text-align: right;
+                    }
+                </style>
             </head>
             <body>
                 <h1>Almond Robot Control</h1>
-                <input type="text" id="commandInput" placeholder="Enter command (e.g., g(position,force))">
-                <button onclick="sendCommand()">Send</button>
+                <div class="slider-container">
+                    <label class="slider-label">Gripper Position: <span class="slider-value" id="positionValue">0</span>%</label>
+                    <input type="range" id="positionSlider" min="0" max="100" step="20" value="0">
+                </div>
+                <div class="slider-container">
+                    <label class="slider-label">Gripper Force: <span class="slider-value" id="forceValue">0</span>%</label>
+                    <input type="range" id="forceSlider" min="0" max="100" step="20" value="0">
+                </div>
                 <div id="status"></div>
                 <script>
                     var ws = new WebSocket("ws://" + window.location.host + "/ws");
+                    var lastPosition = 0;
+                    
                     ws.onmessage = function(event) {
                         document.getElementById("status").innerHTML = "Status: " + event.data;
                     };
-                    function sendCommand() {
-                        var command = document.getElementById("commandInput").value;
-                        ws.send(command);
+
+                    function updateSliderValue(slider, valueElement) {
+                        valueElement.textContent = slider.value;
                     }
+
+                    function sendGripperCommand() {
+                        var position = document.getElementById("positionSlider").value;
+                        var force = document.getElementById("forceSlider").value;
+                        if (position != lastPosition) {
+                            ws.send("g(" + position + "," + force + ")");
+                            lastPosition = position;
+                        }
+                    }
+
+                    var positionSlider = document.getElementById("positionSlider");
+                    var forceSlider = document.getElementById("forceSlider");
+                    var positionValue = document.getElementById("positionValue");
+                    var forceValue = document.getElementById("forceValue");
+
+                    positionSlider.addEventListener("input", function() {
+                        updateSliderValue(positionSlider, positionValue);
+                        sendGripperCommand();
+                    });
+
+                    forceSlider.addEventListener("input", function() {
+                        updateSliderValue(forceSlider, forceValue);
+                    });
                 </script>
             </body>
         </html>
@@ -331,7 +377,7 @@ class AlmondRobot:
         self.arm.DragTeachSwitch(1)
 
     def run_calibration(self) -> None:
-        self.arm.MoveJ([0, -135, 135, -180, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
+        self.arm.MoveJ([0, -135, 65, -90, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
     def get_observation_state(self, keys_only: bool = False) -> dict:
         keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "gripper.pos", "gripper.cur"]
