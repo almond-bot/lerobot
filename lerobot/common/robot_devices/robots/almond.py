@@ -61,6 +61,7 @@ class AlmondRobot:
         self.server = None  # Store reference to uvicorn server
 
         self.arm_state: RobotStatePkg | None = None
+        self.last_arm_state: RobotStatePkg | None = None
         self.arm_state_stop_event = Event()
 
         self.target_gripper_position = 0
@@ -405,11 +406,16 @@ class AlmondRobot:
         return {keys[i]: values[i] for i in range(len(keys))}
 
     def get_action_state(self, keys_only: bool = False) -> dict:
-        keys = ["j1.vel", "j2.vel", "j3.vel", "j4.vel", "j5.vel", "j6.vel", "gripper.pos", "gripper.for"]
+        keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "j1.vel", "j2.vel", "j3.vel", "j4.vel", "j5.vel", "j6.vel", "gripper.pos", "gripper.for"]
         if keys_only:
             return keys
-        
-        values = [float(self.arm_state.actual_qd[i]) if self.arm_state is not None else float(0) for i in range(6)]
+
+        if self.last_arm_state is None:
+            values = [float(0) for _ in range(6)]
+        else:
+            values = [float(self.arm_state.jt_cur_pos[i] - self.last_arm_state.jt_cur_pos[i]) for i in range(6)]
+
+        values.extend([float(self.arm_state.actual_qd[i]) if self.arm_state is not None else float(0) for i in range(6)])
         values.append(float(self.target_gripper_position))
         values.append(float(self.target_gripper_force))
 
@@ -429,6 +435,8 @@ class AlmondRobot:
         observation = self.get_observation_state()
         action = self.get_action_state()
         self.logs["read_pos_dt_s"] = time.perf_counter() - before_read_t
+
+        self.last_arm_state = self.arm_state
 
         observation = torch.as_tensor(list(observation.values()))
         action = torch.as_tensor(list(action.values()))
