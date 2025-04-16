@@ -108,10 +108,9 @@ class AlmondRobot:
                     <input type="range" id="forceSlider" min="0" max="100" step="10" value="0">
                 </div>
                 <div class="button-container" style="margin: 20px;">
-                    <button onclick="sendPresetCommand(0)">Open (0%)</button>
+                    <button onclick="sendPresetCommand(0)">0%</button>
                     <button onclick="sendPresetCommand(10)">10%</button>
-                    <button onclick="sendPresetCommand(20)">20%</button>
-                    <button onclick="sendPresetCommand(40)">40%</button>
+                    <button onclick="sendPresetCommand(30)">30%</button>
                 </div>
                 <div id="status"></div>
                 <script>
