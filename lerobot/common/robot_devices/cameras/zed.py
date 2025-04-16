@@ -324,8 +324,10 @@ class ZedCamera:
             )
 
         # Get image data and ensure it's contiguous
-        left = left_mat.get_data()
-        right = right_mat.get_data()
+        left = left_mat.get_data(deep_copy=True)
+        right = right_mat.get_data(deep_copy=True)
+        left_mat.free()
+        right_mat.free()
 
         # Remove alpha channel
         left = left[..., :3]
@@ -349,9 +351,9 @@ class ZedCamera:
                     f"Got ({h_depth} x {w_depth})"
                 )
 
-            depth_data = depth_mat.get_data()
+            depth_data = depth_mat.get_data(deep_copy=True)
+            depth_mat.free()
             depth_data = depth_data[..., :3] # Remove alpha channel
-
 
             return left, right, depth_data
 
