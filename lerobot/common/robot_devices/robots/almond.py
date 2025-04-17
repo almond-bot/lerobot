@@ -350,6 +350,7 @@ class AlmondRobot:
             # Create action dictionary with joint velocities
             self.teleop_action_queue.put(joint_dirs)
 
+    # TODO(somesaba): this is running too slow, the loop takes 0.1s when it should take 0.008s
     def _send_teleop_action(self):
         last_action = None
 
