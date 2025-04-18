@@ -166,6 +166,7 @@ from lerobot.common.robot_devices.control_utils import (
     stop_recording,
     warmup_record,
 )
+from lerobot.common.robot_devices.robots.almond import AlmondRobot
 from lerobot.common.robot_devices.robots.utils import Robot, make_robot_from_config
 from lerobot.common.robot_devices.utils import busy_wait, safe_disconnect
 from lerobot.common.utils.utils import has_method, init_logging, log_say
@@ -184,6 +185,11 @@ def calibrate(robot: Robot, cfg: CalibrateControlConfig):
             robot.connect()
         if not robot.is_homed():
             robot.home()
+        return
+    elif robot.robot_type.startswith("almond"):
+        if not robot.is_connected:
+            robot.connect()
+        robot.run_calibration()
         return
 
     arms = robot.available_arms if cfg.arms is None else cfg.arms
@@ -296,6 +302,10 @@ def record(
             break
 
         log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
+
+        if isinstance(robot, AlmondRobot):
+            for name in robot.cameras:
+                robot.cameras[name].enable_recording(str(dataset.root / dataset.meta.get_video_file_path(recorded_episodes, name)))
         record_episode(
             robot=robot,
             dataset=dataset,
@@ -306,6 +316,9 @@ def record(
             fps=cfg.fps,
             single_task=cfg.single_task,
         )
+        if isinstance(robot, AlmondRobot):
+            for name in robot.cameras:
+                robot.cameras[name].disable_recording()
 
         # Execute a few seconds without recording to give time to manually reset the environment
         # Current code logic doesn't allow to teleoperate during this time.
@@ -324,7 +337,7 @@ def record(
             dataset.clear_episode_buffer()
             continue
 
-        dataset.save_episode()
+        dataset.save_episode(skip_images=isinstance(robot, AlmondRobot))
         recorded_episodes += 1
 
         if events["stop_recording"]:
