@@ -19,6 +19,7 @@ This file contains utilities for recording frames from Zed cameras.
 import argparse
 import concurrent.futures
 import logging
+import os
 import shutil
 import threading
 import time
@@ -223,7 +224,8 @@ class ZedCamera:
         self.fps = config.fps
         self.use_depth = config.use_depth
         self.mock = config.mock
-        self.channels = config.channels
+        self.channels = 7 if config.use_depth else 6
+        self.codec = config.codec
 
         self.camera = None
         self.is_connected = False
@@ -280,6 +282,37 @@ class ZedCamera:
         self.runtime_parameters = sl.RuntimeParameters()
 
         self.is_connected = True
+
+    def enable_recording(self, path: str):
+        path = path.replace(".mp4", ".svo2")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        if self.codec == "h265":
+            compression_mode = sl.SVO_COMPRESSION_MODE.H265
+        elif self.codec == "h264":
+            compression_mode = sl.SVO_COMPRESSION_MODE.H264
+        else:
+            raise ValueError(f"Expected codec to be 'h265' or 'h264', but {self.codec} is provided.")
+        
+        recording_params = sl.RecordingParameters(path, compression_mode)
+
+        err = self.camera.enable_recording(recording_params)
+        if err != sl.ERROR_CODE.SUCCESS:
+            raise OSError(f"Can't enable recording for ZedCamera({self.id}).")
+
+    def disable_recording(self):
+        self.camera.disable_recording()
+
+    def save_frame(self):
+        start_time = time.perf_counter()
+
+        self.camera.grab(self.runtime_parameters)
+
+        # log the number of seconds it took to read the image
+        self.logs["delta_timestamp_s"] = time.perf_counter() - start_time
+
+        # log the utc time at which the image was received
+        self.logs["timestamp_utc"] = capture_timestamp_utc()
 
     def read(self) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Read a frame from the camera returned in the format height x width x channels (e.g. 480 x 640 x 3)
