@@ -12,7 +12,7 @@ Modifying LeRobot to teleoperate, collect data, and train on Almond Bot.
 - Turn on the FR5 and make sure the Jetson is connectd to the control box.
 - `ssh almond@almond-jetson.local` pw: almond
 - Clone this repo on the Jetson.
-- Install with `uv sync --extra "almond" --extra "pi0"`
+- Install with `uv sync --extra "almond" --extra "pi0" --extra "dynamixel"`
 - Then install the ZED Python SDK and point the location to `.venv/bin/python3` (TODO: we have to do this everything we use `uv` to update the packages since it's not tracked by `uv`)
     - There is a copy of the SDK in `/home`.
 - Follow the instructions in [README](README.md) to install `ffmpeg` on Linux (build from source).
