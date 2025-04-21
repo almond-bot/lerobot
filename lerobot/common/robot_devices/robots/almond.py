@@ -24,13 +24,11 @@ from queue import Queue, Empty
 import re
 
 import torch
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-import uvicorn
 
 from lerobot.common.robot_devices.cameras.utils import make_cameras_from_configs
 from lerobot.common.robot_devices.robots.fairino import RPC, RobotStatePkg
 from lerobot.common.robot_devices.robots.configs import AlmondRobotConfig
+from lerobot.common.robot_devices.motors.utils import make_motors_buses_from_configs
 
 def run_async_in_thread(coro: Coroutine):
     loop = asyncio.new_event_loop()
@@ -56,10 +54,10 @@ class AlmondRobot:
             self.config = replace(config, **kwargs)
 
         self.robot_type = self.config.type
+        self.leader_arms = make_motors_buses_from_configs(self.config.leader_arms)
         self.cameras = make_cameras_from_configs(self.config.cameras)
         self.is_connected = False
         self.logs = {}
-        self.server = None  # Store reference to uvicorn server
 
         self.arm_state: RobotStatePkg | None = None
         self.last_arm_state: RobotStatePkg | None = None
@@ -70,162 +68,6 @@ class AlmondRobot:
 
         self.teleop_action_queue: Queue[list[int]] = Queue()
         self.model_action_queue: Queue[dict[str, float]] = Queue()
-        
-        # Web server setup
-        self.app = FastAPI()
-        self.active_websocket = None
-        self.setup_webserver()
-
-    def setup_webserver(self):
-        # HTML template with sliders for gripper control
-        html = """
-        <!DOCTYPE html>
-        <html>
-            <head>
-                <title>Almond Robot Control</title>
-                <style>
-                    .slider-container {
-                        margin: 20px;
-                        width: 300px;
-                    }
-                    .slider-label {
-                        display: block;
-                        margin-bottom: 5px;
-                    }
-                    .slider-value {
-                        display: inline-block;
-                        width: 40px;
-                        text-align: right;
-                    }
-                    .keyboard-controls {
-                        margin: 20px;
-                        padding: 10px;
-                        border: 1px solid #ccc;
-                        border-radius: 5px;
-                    }
-                    .keyboard-controls h3 {
-                        margin-top: 0;
-                    }
-                    .keyboard-controls p {
-                        margin: 5px 0;
-                    }
-                </style>
-            </head>
-            <body>
-                <h1>Almond Robot Control</h1>
-                <div class="keyboard-controls">
-                    <h3>Keyboard Controls</h3>
-                    <p>WASDQE - Move tool position</p>
-                    <p>IJKLUO - Rotate tool</p>
-                </div>
-                <div class="slider-container">
-                    <label class="slider-label">Gripper Position: <span class="slider-value" id="positionValue">0</span>%</label>
-                    <input type="range" id="positionSlider" min="0" max="100" step="10" value="0">
-                </div>
-                <div class="slider-container">
-                    <label class="slider-label">Gripper Force: <span class="slider-value" id="forceValue">0</span>%</label>
-                    <input type="range" id="forceSlider" min="0" max="100" step="10" value="0">
-                </div>
-                <div class="button-container" style="margin: 20px;">
-                    <button onclick="sendPresetCommand(0)">0%</button>
-                    <button onclick="sendPresetCommand(10)">10%</button>
-                    <button onclick="sendPresetCommand(30)">30%</button>
-                </div>
-                <div id="status"></div>
-                <script>
-                    var ws = new WebSocket("ws://" + window.location.host + "/ws");
-                    var lastPosition = 0;
-                    var activeKeys = new Set();
-                    
-                    ws.onmessage = function(event) {
-                        document.getElementById("status").innerHTML = "Status: " + event.data;
-                    };
-
-                    function updateSliderValue(slider, valueElement) {
-                        valueElement.textContent = slider.value;
-                    }
-
-                    function sendGripperCommand() {
-                        var position = document.getElementById("positionSlider").value;
-                        var force = document.getElementById("forceSlider").value;
-                        if (position != lastPosition) {
-                            ws.send("g(" + position + "," + force + ")");
-                            lastPosition = position;
-                        }
-                    }
-
-                    function sendPresetCommand(position) {
-                        ws.send("g(" + position + ",100)");
-                        document.getElementById("positionSlider").value = position;
-                        document.getElementById("positionValue").textContent = position;
-                        lastPosition = position;
-                    }
-
-                    function sendArmCommand() {
-                        if (activeKeys.size > 0) {
-                            var command = "a(";
-                            var keys = Array.from(activeKeys);
-                            command += keys.join(",");
-                            command += ")";
-                            ws.send(command);
-                        }
-                    }
-
-                    document.addEventListener("keydown", function(event) {
-                        var key = event.key.toUpperCase();
-                        if ("WASDQEIJKLUO".includes(key)) {
-                            activeKeys.add(key);
-                            sendArmCommand();
-                        }
-                    });
-
-                    document.addEventListener("keyup", function(event) {
-                        var key = event.key.toUpperCase();
-                        if ("WASDQEIJKLUO".includes(key)) {
-                            activeKeys.delete(key);
-                            if (activeKeys.size === 0) {
-                                ws.send("a()");
-                            } else {
-                                sendArmCommand();
-                            }
-                        }
-                    });
-
-                    var positionSlider = document.getElementById("positionSlider");
-                    var forceSlider = document.getElementById("forceSlider");
-                    var positionValue = document.getElementById("positionValue");
-                    var forceValue = document.getElementById("forceValue");
-
-                    positionSlider.addEventListener("input", function() {
-                        updateSliderValue(positionSlider, positionValue);
-                        sendGripperCommand();
-                    });
-
-                    forceSlider.addEventListener("input", function() {
-                        updateSliderValue(forceSlider, forceValue);
-                    });
-                </script>
-            </body>
-        </html>
-        """
-
-        @self.app.get("/")
-        async def get():
-            return HTMLResponse(html)
-
-        @self.app.websocket("/ws")
-        async def websocket_endpoint(websocket: WebSocket):
-            await websocket.accept()
-            self.active_websocket = websocket
-            try:
-                while True:
-                    data = await websocket.receive_text()
-                    if data.startswith("g("):
-                        self._handle_gripper_command(data)
-                    elif data.startswith("a("):
-                        self._handle_arm_command(data)
-            except WebSocketDisconnect:
-                self.active_websocket = None
 
     async def _get_arm_status(self):
         reader, self.stream_writer = await asyncio.open_connection(
@@ -493,13 +335,6 @@ class AlmondRobot:
         send_teleop_action_thread = Thread(target=self._send_teleop_action)
         send_teleop_action_thread.start()
 
-        # Start the web server in a separate thread
-        config = uvicorn.Config(self.app, host="0.0.0.0", port=8000)
-        self.server = uvicorn.Server(config)
-        webserver_thread = Thread(target=self.server.run)
-        webserver_thread.daemon = True
-        webserver_thread.start()
-
         self.is_connected = True
 
         for name in self.cameras:
@@ -639,11 +474,6 @@ class AlmondRobot:
             return
 
         self.arm_state_stop_event.set()
-
-        # Stop the webserver if it exists
-        if self.server is not None:
-            self.server.should_exit = True
-            self.server = None
 
         self.arm.ServoMoveEnd()
         self.arm.DragTeachSwitch(0)
