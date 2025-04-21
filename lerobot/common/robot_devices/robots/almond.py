@@ -70,8 +70,7 @@ class AlmondRobot:
 
         self.last_leader_arm_pos: list[float] | None = None
 
-        self.teleop_action_queue: Queue[list[float]] = Queue()
-        self.model_action_queue: Queue[dict[str, float]] = Queue()
+        self.action_queue: Queue[list[float]] = Queue()
 
     async def _get_arm_status(self):
         reader, self.stream_writer = await asyncio.open_connection(
@@ -158,7 +157,7 @@ class AlmondRobot:
 
         while not self.arm_state_stop_event.is_set():
             try:
-                action = self.model_action_queue.get(block=False)
+                action = self.action_queue.get(block=False)
             except Empty:
                 if last_action is None:
                     continue
@@ -316,7 +315,7 @@ class AlmondRobot:
         goal_pos = self.leader_arm.read("Present_Position")
         if self.last_leader_arm_pos is not None:
             change_in_joint_angles = [float(goal_pos[i] - self.last_leader_arm_pos[i]) / DYNAMIXEL_RESOLUTION * 360 for i in range(len(goal_pos))]
-            self.teleop_action_queue.put(change_in_joint_angles)
+            self.action_queue.put(change_in_joint_angles)
         self.last_leader_arm_pos = goal_pos
 
         if not record_data:
@@ -392,7 +391,7 @@ class AlmondRobot:
             raise ConnectionError()
 
         action_dict = dict(zip(self.get_action_state(keys_only=True), action.tolist(), strict=True))
-        self.model_action_queue.put(action_dict)
+        self.action_queue.put(action_dict)
 
         # TODO(aliberts): return action_sent when motion is limited
         return action
