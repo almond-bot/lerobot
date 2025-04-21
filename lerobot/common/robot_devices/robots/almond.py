@@ -66,7 +66,6 @@ class AlmondRobot:
         self.target_gripper_position = 0
         self.target_gripper_force = 0
 
-        self.teleop_action_queue: Queue[list[int]] = Queue()
         self.model_action_queue: Queue[dict[str, float]] = Queue()
 
     async def _get_arm_status(self):
@@ -146,80 +145,8 @@ class AlmondRobot:
             except Exception:
                 traceback.print_exc()
 
-    def _handle_gripper_command(self, command: str) -> bool:
-        """Handle gripper commands in the format g(position,force)"""
-
-        match = re.match(r"g\(([0-9.]+),([0-9.]+)\)", command)
-        if match:
-            position = float(match.group(1))
-            force = float(match.group(2))
-
-            self.target_gripper_position = position
-            self.target_gripper_force = force
-
-            self._move_gripper(position, force)
-
     def _move_gripper(self, position: float, force: float):
         self.arm.MoveGripper(1, position, 0, force, 5000, 0, 0, 0, 0, 0)
-
-    def _handle_arm_command(self, command: str) -> None:
-        """Handle arm movement commands in the format a(key1,key2,...)"""
-        match = re.match(r"a\(([A-Z,]*)\)", command)
-        if match:
-            keys = match.group(1).split(",") if match.group(1) else []
-            # Create a dictionary to map keys to joint velocities
-            # W/S: forward/backward (joint 1)
-            # A/D: left/right (joint 2)
-            # Q/E: up/down (joint 3)
-            # I/K: rotate around X (joint 4)
-            # J/L: rotate around Y (joint 5)
-            # U/O: rotate around Z (joint 6)
-            joint_dirs = [0] * 6
-            for key in keys:
-                if key == "W": joint_dirs[1] = -1
-                elif key == "S": joint_dirs[1] = 1
-                elif key == "A": joint_dirs[0] = -1
-                elif key == "D": joint_dirs[0] = 1
-                elif key == "Q": joint_dirs[2] = -1
-                elif key == "E": joint_dirs[2] = 1
-                elif key == "I": joint_dirs[3] = 1
-                elif key == "K": joint_dirs[3] = -1
-                elif key == "J": joint_dirs[4] = -1
-                elif key == "L": joint_dirs[4] = 1
-                elif key == "U": joint_dirs[5] = -1
-                elif key == "O": joint_dirs[5] = 1
-            
-            # Create action dictionary with joint velocities
-            self.teleop_action_queue.put(joint_dirs)
-
-    # TODO(somesaba): this is running too slow, the loop takes 0.1s when it should take 0.008s
-    def _send_teleop_action(self):
-        last_action = None
-
-        while not self.arm_state_stop_event.is_set():
-            try:
-                action = self.teleop_action_queue.get(block=False)
-            except Empty:
-                if last_action is None:
-                    continue
-
-                action = None
-
-            if action is not None and last_action is None:
-                self.arm.DragTeachSwitch(0)
-                self.arm.ServoMoveStart()
-
-            tool_pos = [0] * 6
-            if action is not None:
-                tool_pos = [d * AlmondRobot.JOINT_DIRECTION_MULTIPLIER for d in action]
-            elif last_action is not None:
-                tool_pos = [d * AlmondRobot.JOINT_DIRECTION_MULTIPLIER for d in last_action]
-
-            self.arm.ServoCart(2, tool_pos)
-
-            last_action = action
-
-            time.sleep(0.008)
 
     def _send_model_action(self):
         last_action = None
@@ -234,7 +161,6 @@ class AlmondRobot:
                 action = None
 
             if action is not None and last_action is None:
-                self.arm.DragTeachSwitch(0)
                 self.arm.ServoMoveStart()
 
             current_joint_pos = self.arm_state.jt_cur_pos
@@ -332,9 +258,6 @@ class AlmondRobot:
         send_model_action_thread = Thread(target=self._send_model_action)
         send_model_action_thread.start()
 
-        send_teleop_action_thread = Thread(target=self._send_teleop_action)
-        send_teleop_action_thread.start()
-
         self.is_connected = True
 
         for name in self.cameras:
@@ -386,6 +309,9 @@ class AlmondRobot:
         # TODO(aliberts): return ndarrays instead of torch.Tensors
         if not self.is_connected:
             raise ConnectionError()
+    
+        goal_pos = self.leader_arms["main"].read("Present_Position")
+        print(goal_pos)
     
         if not record_data:
             return
@@ -460,7 +386,7 @@ class AlmondRobot:
             raise ConnectionError()
 
         action_dict = dict(zip(self.get_action_state(keys_only=True), action.tolist(), strict=True))
-        self.action_queue.put(action_dict)
+        self.model_action_queue.put(action_dict)
 
         # TODO(aliberts): return action_sent when motion is limited
         return action
