@@ -160,9 +160,6 @@ class AlmondRobot:
 
                 action = None
 
-            if action is not None and last_action is None:
-                self.arm.ServoMoveStart()
-
             current_joint_pos = self.arm_state.jt_cur_pos
             if action is None:
                 joint_pos = current_joint_pos
@@ -260,6 +257,10 @@ class AlmondRobot:
 
         self.is_connected = True
 
+        for name in self.leader_arms:
+            print(f"Connecting {name} leader arm.")
+            self.leader_arms[name].connect()
+
         for name in self.cameras:
             self.cameras[name].connect()
             self.is_connected = self.is_connected and self.cameras[name].is_connected
@@ -269,11 +270,10 @@ class AlmondRobot:
             raise ConnectionError()
 
         self.run_calibration()
-
-        self.arm.DragTeachSwitch(1)
+        self.arm.ServoMoveStart()
 
     def run_calibration(self) -> None:
-        self.arm.DragTeachSwitch(0)
+        self.arm.ServoMoveEnd()
         self.arm.MoveJ([0, -135, 65, -90, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
     def get_observation_state(self, keys_only: bool = False) -> dict:
@@ -402,7 +402,6 @@ class AlmondRobot:
         self.arm_state_stop_event.set()
 
         self.arm.ServoMoveEnd()
-        self.arm.DragTeachSwitch(0)
         self.arm.MoveGripper(1, 0, 0, 0, 5000, 0, 0, 0, 0, 0)
 
         self.arm.CloseRPC()
