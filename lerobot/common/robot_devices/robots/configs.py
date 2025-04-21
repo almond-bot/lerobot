@@ -625,7 +625,7 @@ class AlmondRobotConfig(RobotConfig):
     leader_arms: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
             "main": DynamixelMotorsBusConfig(
-                port="/dev/tty.usbmodem58760434241",
+                port="/dev/ttyACM0",
                 motors={
                     "j1": [0, "xl430-w250"],
                     "j2": [1, "xl430-w250"],
