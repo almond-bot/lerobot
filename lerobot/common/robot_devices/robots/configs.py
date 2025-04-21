@@ -622,6 +622,23 @@ class AlmondRobotConfig(RobotConfig):
     # the number of motors in your follower arms.
     max_relative_target: int | None = None
 
+    leader_arms: dict[str, MotorsBusConfig] = field(
+        default_factory=lambda: {
+            "main": DynamixelMotorsBusConfig(
+                port="/dev/tty.usbmodem58760434241",
+                motors={
+                    "j1": [0, "xl430-w250"],
+                    "j2": [1, "xl430-w250"],
+                    "j3": [2, "xl330-m288"],
+                    "j4": [3, "xl330-m288"],
+                    "j5": [4, "xl330-m288"],
+                    "j6": [5, "xl330-m288"],
+                    "gripper": [6, "xl330-m077"],
+                },
+            ),
+        }
+    )
+
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
             "arm": ZedCameraConfig(
