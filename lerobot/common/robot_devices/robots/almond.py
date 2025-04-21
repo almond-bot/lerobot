@@ -30,6 +30,8 @@ from lerobot.common.robot_devices.robots.fairino import RPC, RobotStatePkg
 from lerobot.common.robot_devices.robots.configs import AlmondRobotConfig
 from lerobot.common.robot_devices.motors.utils import make_motors_buses_from_configs
 
+DYNAMIXEL_RESOLUTION = 4096
+
 def run_async_in_thread(coro: Coroutine):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -54,7 +56,7 @@ class AlmondRobot:
             self.config = replace(config, **kwargs)
 
         self.robot_type = self.config.type
-        self.leader_arms = make_motors_buses_from_configs(self.config.leader_arms)
+        self.leader_arm = make_motors_buses_from_configs(self.config.leader_arms)["main"]
         self.cameras = make_cameras_from_configs(self.config.cameras)
         self.is_connected = False
         self.logs = {}
@@ -66,6 +68,9 @@ class AlmondRobot:
         self.target_gripper_position = 0
         self.target_gripper_force = 0
 
+        self.last_leader_arm_pos: list[float] | None = None
+
+        self.teleop_action_queue: Queue[list[float]] = Queue()
         self.model_action_queue: Queue[dict[str, float]] = Queue()
 
     async def _get_arm_status(self):
@@ -257,9 +262,7 @@ class AlmondRobot:
 
         self.is_connected = True
 
-        for name in self.leader_arms:
-            print(f"Connecting {name} leader arm.")
-            self.leader_arms[name].connect()
+        self.leader_arm.connect()
 
         for name in self.cameras:
             self.cameras[name].connect()
@@ -310,9 +313,12 @@ class AlmondRobot:
         if not self.is_connected:
             raise ConnectionError()
     
-        goal_pos = self.leader_arms["main"].read("Present_Position")
-        print(goal_pos)
-    
+        goal_pos = self.leader_arm.read("Present_Position")
+        if self.last_leader_arm_pos is not None:
+            change_in_joint_angles = [float(goal_pos[i] - self.last_leader_arm_pos[i]) / DYNAMIXEL_RESOLUTION * 360 for i in range(len(goal_pos))]
+            self.teleop_action_queue.put(change_in_joint_angles)
+        self.last_leader_arm_pos = goal_pos
+
         if not record_data:
             return
 
