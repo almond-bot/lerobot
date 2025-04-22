@@ -71,6 +71,7 @@ class AlmondRobot:
         self.target_gripper_position = 0
         self.target_gripper_force = 0
 
+        self._is_first_teleop_step = True
         self._last_gripper_update = 0
         self._last_gripper_percent = 0
         self._last_gripper_change_time = 0
@@ -288,9 +289,18 @@ class AlmondRobot:
         gripper_pos = goal_pos[6]
         goal_pos = [(float(x) - z) / DYNAMIXEL_RESOLUTION * 360 for x, z in zip(goal_pos[:6], DMXL_ZERO_POSITION)]
         goal_pos = [g + z for g, z in zip(goal_pos, FR_ZERO_POSITION)]
+        print(goal_pos)
 
-        if any(abs(g - c) > 0.1 for g, c in zip(goal_pos[:6], cur_pos)):
-            self.arm.ServoJ(goal_pos[:6], axisPos=[0]*6, vel=100)
+        # Only run initialization sequence on first teleop step
+        if self._is_first_teleop_step:
+            self.arm.ServoMoveEnd()
+            self.arm.MoveJ(goal_pos, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
+            self.arm.ServoMoveStart()
+            self._is_first_teleop_step = False
+        else:
+            # Only move if the difference is significant enough
+            if any(abs(g - c) > 0.1 for g, c in zip(goal_pos[:6], cur_pos)):
+                self.arm.ServoJ(goal_pos[:6], axisPos=[0]*6, vel=AlmondRobot.ARM_VELOCITY, cmdT=0.05)
 
         gripper_percent = (gripper_pos - DMXL_CLOSE_GRIPPER) / (DMXL_OPEN_GRIPPER - DMXL_CLOSE_GRIPPER) * 100
         gripper_percent = max(0, min(100, gripper_percent))
