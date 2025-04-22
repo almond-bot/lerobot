@@ -76,6 +76,8 @@ class AlmondRobot:
         self._last_gripper_percent = 0
         self._last_gripper_change_time = 0
         self._pending_gripper_update = False
+        self._gripper_rpc = None
+        self._gripper_thread_active = False
 
     async def _get_arm_status(self):
         reader, self.stream_writer = await asyncio.open_connection(
@@ -212,6 +214,12 @@ class AlmondRobot:
             self.arm = None
             return
 
+        # Create separate RPC connection for gripper
+        self._gripper_rpc = RPC(AlmondRobot.ARM_IP)
+        if not self._gripper_rpc.is_conect:
+            self._gripper_rpc = None
+            return
+
         self.arm.ResetAllError()
         self.arm.SetRobotRealtimeStateSamplePeriod(1000 / AlmondRobot.ARM_STATUS_RATE)
 
@@ -289,7 +297,6 @@ class AlmondRobot:
         gripper_pos = goal_pos[6]
         goal_pos = [(float(x) - z) / DYNAMIXEL_RESOLUTION * 360 for x, z in zip(goal_pos[:6], DMXL_ZERO_POSITION)]
         goal_pos = [g + z for g, z in zip(goal_pos, FR_ZERO_POSITION)]
-        print(goal_pos)
 
         # Only run initialization sequence on first teleop step
         if self._is_first_teleop_step:
@@ -297,24 +304,30 @@ class AlmondRobot:
             self.arm.MoveJ(goal_pos, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
             self.arm.ServoMoveStart()
             self._is_first_teleop_step = False
-        else:
-            # Only move if the difference is significant enough
-            if any(abs(g - c) > 0.1 for g, c in zip(goal_pos[:6], cur_pos)):
-                self.arm.ServoJ(goal_pos[:6], axisPos=[0]*6, vel=AlmondRobot.ARM_VELOCITY, cmdT=0.05)
+        elif not self._gripper_thread_active and any(abs(g - c) > 0.1 for g, c in zip(goal_pos[:6], cur_pos)):
+            self.arm.ServoJ(goal_pos[:6], axisPos=[0]*6, vel=AlmondRobot.ARM_VELOCITY, cmdT=0.04761904761)
 
         gripper_percent = (gripper_pos - DMXL_CLOSE_GRIPPER) / (DMXL_OPEN_GRIPPER - DMXL_CLOSE_GRIPPER) * 100
         gripper_percent = max(0, min(100, gripper_percent))
         current_time = time.time()
-        
+
         # Check if position has changed significantly
         if abs(gripper_percent - self._last_gripper_percent) > 10:
             self._last_gripper_change_time = current_time
             self._last_gripper_percent = gripper_percent
             self._pending_gripper_update = True
-        
+
         # Only check stability if we have a pending update and enough time has passed
         if self._pending_gripper_update and current_time - self._last_gripper_change_time >= 1.0:
-            self.arm.MoveGripper(1, gripper_percent, 0, 50, 5000, 0, 0, 0, 0, 0)
+            def move_gripper():
+                self._gripper_thread_active = True
+                try:
+                    self._gripper_rpc.MoveGripper(1, gripper_percent, 0, 50, 5000, 0, 0, 0, 0, 0)
+                finally:
+                    self._gripper_thread_active = False
+                    self._is_first_teleop_step = True
+            Thread(target=move_gripper).start()
+
             self._last_gripper_update = current_time
             self._pending_gripper_update = False
 
@@ -410,6 +423,10 @@ class AlmondRobot:
 
         self.arm.CloseRPC()
         self.arm = None
+
+        if self._gripper_rpc is not None:
+            self._gripper_rpc.CloseRPC()
+            self._gripper_rpc = None
 
         if len(self.cameras) > 0:
             for cam in self.cameras.values():
