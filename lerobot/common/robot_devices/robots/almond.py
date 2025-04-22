@@ -73,6 +73,8 @@ class AlmondRobot:
 
         self._last_gripper_update = 0
         self._last_gripper_percent = 0
+        self._last_gripper_change_time = 0
+        self._pending_gripper_update = False
 
     async def _get_arm_status(self):
         reader, self.stream_writer = await asyncio.open_connection(
@@ -284,7 +286,7 @@ class AlmondRobot:
         cur_pos = self.arm_state.jt_cur_pos
         goal_pos = self.leader_arm.read("Present_Position")
         gripper_pos = goal_pos[6]
-        goal_pos = [(float(x) - z) / DYNAMIXEL_RESOLUTION * 360 for x, z in zip(goal_pos, DMXL_ZERO_POSITION)]
+        goal_pos = [(float(x) - z) / DYNAMIXEL_RESOLUTION * 360 for x, z in zip(goal_pos[:6], DMXL_ZERO_POSITION)]
         goal_pos = [g + z for g, z in zip(goal_pos, FR_ZERO_POSITION)]
 
         if any(abs(g - c) > 0.1 for g, c in zip(goal_pos[:6], cur_pos)):
@@ -293,11 +295,18 @@ class AlmondRobot:
         gripper_percent = (gripper_pos - DMXL_CLOSE_GRIPPER) / (DMXL_OPEN_GRIPPER - DMXL_CLOSE_GRIPPER) * 100
         gripper_percent = max(0, min(100, gripper_percent))
         current_time = time.time()
-        if current_time - self._last_gripper_update >= 1.0 and abs(gripper_percent - self._last_gripper_percent) > 10:
+        
+        # Check if position has changed significantly
+        if abs(gripper_percent - self._last_gripper_percent) > 10:
+            self._last_gripper_change_time = current_time
+            self._last_gripper_percent = gripper_percent
+            self._pending_gripper_update = True
+        
+        # Only check stability if we have a pending update and enough time has passed
+        if self._pending_gripper_update and current_time - self._last_gripper_change_time >= 1.0:
             self.arm.MoveGripper(1, gripper_percent, 0, 50, 5000, 0, 0, 0, 0, 0)
             self._last_gripper_update = current_time
-            self._last_gripper_percent = gripper_percent
-        
+            self._pending_gripper_update = False
 
         if not record_data:
             return
