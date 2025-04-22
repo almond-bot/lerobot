@@ -33,6 +33,7 @@ FR_ZERO_POSITION = [0, -135, 155, -130, -90, 0]
 DMXL_ZERO_POSITION = [2038, 1653, 865, 3418, 174, -34]
 
 DMXL_CLOSE_GRIPPER = 1958
+DMXL_OPEN_GRIPPER = 2661
 
 def run_async_in_thread(coro: Coroutine):
     loop = asyncio.new_event_loop()
@@ -70,7 +71,8 @@ class AlmondRobot:
         self.target_gripper_position = 0
         self.target_gripper_force = 0
 
-        self.last_leader_arm_pos: list[float] | None = None
+        self._last_gripper_update = 0
+        self._last_gripper_percent = 0
 
     async def _get_arm_status(self):
         reader, self.stream_writer = await asyncio.open_connection(
@@ -148,9 +150,6 @@ class AlmondRobot:
 
             except Exception:
                 traceback.print_exc()
-
-    def _move_gripper(self, position: float, force: float):
-        self.arm.MoveGripper(1, position, 0, force, 5000, 0, 0, 0, 0, 0)
 
     @property
     def camera_features(self) -> dict:
@@ -284,11 +283,21 @@ class AlmondRobot:
 
         cur_pos = self.arm_state.jt_cur_pos
         goal_pos = self.leader_arm.read("Present_Position")
+        gripper_pos = goal_pos[6]
         goal_pos = [(float(x) - z) / DYNAMIXEL_RESOLUTION * 360 for x, z in zip(goal_pos, DMXL_ZERO_POSITION)]
         goal_pos = [g + z for g, z in zip(goal_pos, FR_ZERO_POSITION)]
 
         if any(abs(g - c) > 0.1 for g, c in zip(goal_pos[:6], cur_pos)):
             self.arm.ServoJ(goal_pos[:6], axisPos=[0]*6, vel=100)
+
+        gripper_percent = (gripper_pos - DMXL_CLOSE_GRIPPER) / (DMXL_OPEN_GRIPPER - DMXL_CLOSE_GRIPPER) * 100
+        gripper_percent = max(0, min(100, gripper_percent))
+        current_time = time.time()
+        if current_time - self._last_gripper_update >= 1.0 and abs(gripper_percent - self._last_gripper_percent) > 10:
+            self.arm.MoveGripper(1, gripper_percent, 0, 50, 5000, 0, 0, 0, 0, 0)
+            self._last_gripper_update = current_time
+            self._last_gripper_percent = gripper_percent
+        
 
         if not record_data:
             return
