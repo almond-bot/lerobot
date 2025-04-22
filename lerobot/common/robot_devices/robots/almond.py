@@ -20,8 +20,6 @@ from typing import Coroutine
 import time
 from dataclasses import replace
 from threading import Thread, Event
-from queue import Queue, Empty
-import re
 
 import torch
 
@@ -31,6 +29,10 @@ from lerobot.common.robot_devices.robots.configs import AlmondRobotConfig
 from lerobot.common.robot_devices.motors.utils import make_motors_buses_from_configs
 
 DYNAMIXEL_RESOLUTION = 4096
+FR_ZERO_POSITION = [0, -135, 155, -130, -90, 0]
+DMXL_ZERO_POSITION = [2038, 1653, 865, 3418, 174, -34]
+
+DMXL_CLOSE_GRIPPER = 1958
 
 def run_async_in_thread(coro: Coroutine):
     loop = asyncio.new_event_loop()
@@ -69,8 +71,6 @@ class AlmondRobot:
         self.target_gripper_force = 0
 
         self.last_leader_arm_pos: list[float] | None = None
-
-        self.action_queue: Queue[list[float]] = Queue()
 
     async def _get_arm_status(self):
         reader, self.stream_writer = await asyncio.open_connection(
@@ -152,36 +152,6 @@ class AlmondRobot:
     def _move_gripper(self, position: float, force: float):
         self.arm.MoveGripper(1, position, 0, force, 5000, 0, 0, 0, 0, 0)
 
-    def _send_model_action(self):
-        last_action = None
-
-        while not self.arm_state_stop_event.is_set():
-            try:
-                action = self.action_queue.get(block=False)
-            except Empty:
-                if last_action is None:
-                    continue
-
-                action = None
-
-            current_joint_pos = self.arm_state.jt_cur_pos
-            if action is None:
-                joint_pos = current_joint_pos
-            else:
-                joint_vels = [action[f"j{i}.vel"] for i in range(1, 7)]
-                joint_dirs = [0 if abs(v) < 0.05 else 1 if v > 0 else -1 for v in joint_vels]
-                joint_pos = [d * AlmondRobot.JOINT_DIRECTION_MULTIPLIER + p for (d, p) in zip(joint_dirs, current_joint_pos)]
-
-            self.arm.ServoJ(joint_pos, cmdT=1 / AlmondRobot.ARM_STATUS_RATE, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
-
-            if action is not None and last_action is not None and (last_action["gripper.pos"] != action["gripper.pos"] or last_action["gripper.for"] != action["gripper.for"]):
-                move_gripper_thread = Thread(target=self._move_gripper, args=(action["gripper.pos"], action["gripper.for"]))
-                move_gripper_thread.start()
-
-            last_action = action
-
-            time.sleep(1 / AlmondRobot.ARM_STATUS_RATE)
-
     @property
     def camera_features(self) -> dict:
         cam_ft = {}
@@ -256,9 +226,6 @@ class AlmondRobot:
         get_arm_status_thread = Thread(target=run_async_in_thread, args=(self._get_arm_status(),))
         get_arm_status_thread.start()
 
-        send_model_action_thread = Thread(target=self._send_model_action)
-        send_model_action_thread.start()
-
         self.is_connected = True
 
         self.leader_arm.connect()
@@ -274,9 +241,12 @@ class AlmondRobot:
         self.run_calibration()
         self.arm.ServoMoveStart()
 
+        while self.arm_state is None:
+            time.sleep(0.25)
+
     def run_calibration(self) -> None:
         self.arm.ServoMoveEnd()
-        self.arm.MoveJ([0, -135, 65, -90, -90, 0], 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
+        self.arm.MoveJ(FR_ZERO_POSITION, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
 
     def get_observation_state(self, keys_only: bool = False) -> dict:
         keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "gripper.pos", "gripper.cur"]
@@ -311,15 +281,14 @@ class AlmondRobot:
         # TODO(aliberts): return ndarrays instead of torch.Tensors
         if not self.is_connected:
             raise ConnectionError()
-    
-        goal_pos = self.leader_arm.read("Present_Position")
-        if self.last_leader_arm_pos is not None:
-            change_in_joint_angles = [float(goal_pos[i] - self.last_leader_arm_pos[i]) / DYNAMIXEL_RESOLUTION * 360 for i in range(len(goal_pos))]
-            self.action_queue.put(change_in_joint_angles)
-        self.last_leader_arm_pos = goal_pos
 
-        if not record_data:
-            return
+        cur_pos = self.arm_state.jt_cur_pos
+        goal_pos = self.leader_arm.read("Present_Position")
+        goal_pos = [(float(x) - z) / DYNAMIXEL_RESOLUTION * 360 for x, z in zip(goal_pos, DMXL_ZERO_POSITION)]
+        goal_pos = [g + z for g, z in zip(goal_pos, FR_ZERO_POSITION)]
+
+        if any(abs(g - c) > 0.1 for g, c in zip(goal_pos[:6], cur_pos)):
+            self.arm.ServoJ(goal_pos[:6], axisPos=[0]*6, vel=100)
 
         before_read_t = time.perf_counter()
         observation = self.get_observation_state()
@@ -391,7 +360,6 @@ class AlmondRobot:
             raise ConnectionError()
 
         action_dict = dict(zip(self.get_action_state(keys_only=True), action.tolist(), strict=True))
-        self.action_queue.put(action_dict)
 
         # TODO(aliberts): return action_sent when motion is limited
         return action
