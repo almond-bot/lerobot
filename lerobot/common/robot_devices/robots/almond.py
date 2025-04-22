@@ -290,6 +290,9 @@ class AlmondRobot:
         if any(abs(g - c) > 0.1 for g, c in zip(goal_pos[:6], cur_pos)):
             self.arm.ServoJ(goal_pos[:6], axisPos=[0]*6, vel=100)
 
+        if not record_data:
+            return
+
         before_read_t = time.perf_counter()
         observation = self.get_observation_state()
         action = self.get_action_state()
