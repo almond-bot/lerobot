@@ -23,6 +23,7 @@ from threading import Thread, Event
 
 import torch
 
+from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
 from lerobot.common.robot_devices.cameras.utils import make_cameras_from_configs
 from lerobot.common.robot_devices.robots.fairino import RPC, RobotStatePkg
 from lerobot.common.robot_devices.robots.configs import AlmondRobotConfig
@@ -77,7 +78,10 @@ class AlmondRobot:
         self._last_gripper_change_time = 0
         self._pending_gripper_update = False
         self._gripper_rpc = None
-        self._gripper_thread_active = False
+        
+        # Add smoothing parameters
+        self.smoothing_factor = 0.2  # More aggressive smoothing (lower = smoother)
+        self.smoothed_positions = [0.0] * 6
 
     async def _get_arm_status(self):
         reader, self.stream_writer = await asyncio.open_connection(
@@ -228,8 +232,6 @@ class AlmondRobot:
 
         time.sleep(2)
         self.arm.ResetAllError()
-        self.arm.MoveGripper(1, 0, 0, 0, 5000, 0, 0, 0, 0, 0)
-        self.arm.ResetAllError()
 
         self.arm.Mode(1)
 
@@ -239,14 +241,17 @@ class AlmondRobot:
         self.is_connected = True
 
         self.leader_arm.connect()
+        self.leader_arm.write("Torque_Enable", 0)
 
-        for name in self.cameras:
-            self.cameras[name].connect()
-            self.is_connected = self.is_connected and self.cameras[name].is_connected
+        # for name in self.cameras:
+        #     self.cameras[name].connect()
+        #     self.is_connected = self.is_connected and self.cameras[name].is_connected
 
         if not self.is_connected:
             print("Could not connect to the cameras, check that all cameras are plugged-in.")
             raise ConnectionError()
+
+        self.set_preset()
 
         self.run_calibration()
         self.arm.ServoMoveStart()
@@ -257,6 +262,32 @@ class AlmondRobot:
     def run_calibration(self) -> None:
         self.arm.ServoMoveEnd()
         self.arm.MoveJ(FR_ZERO_POSITION, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
+
+    def set_preset(self) -> None:
+        if (self.leader_arm.read("Torque_Enable") != TorqueMode.DISABLED.value).any():
+            raise ValueError("To run set robot preset, the torque must be disabled on all motors.")
+
+        # Use 'extended position mode' for all motors except gripper, because in joint mode the servos can't
+        # rotate more than 360 degrees (from 0 to 4095) And some mistake can happen while assembling the arm,
+        # you could end up with a servo with a position 0 or 4095 at a crucial point See [
+        # https://emanual.robotis.com/docs/en/dxl/x/x_series/#operating-mode11]
+        all_motors_except_gripper = [name for name in self.leader_arm.motor_names if name != "gripper"]
+        if len(all_motors_except_gripper) > 0:
+            # 4 corresponds to Extended Position on Koch motors
+            self.leader_arm.write("Operating_Mode", 4, all_motors_except_gripper)
+
+        # Use 'position control current based' for gripper to be limited by the limit of the current.
+        # For the follower gripper, it means it can grasp an object without forcing too much even tho,
+        # it's goal position is a complete grasp (both gripper fingers are ordered to join and reach a touch).
+        # For the leader gripper, it means we can use it as a physical trigger, since we can force with our finger
+        # to make it move, and it will move back to its original target position when we release the force.
+        # 5 corresponds to Current Controlled Position on Koch gripper motors "xl330-m077, xl330-m288"
+        self.leader_arm.write("Operating_Mode", 5, "gripper")
+
+        # Enable torque on the gripper of the leader arms, and move it to 45 degrees,
+        # so that we can use it as a trigger to close the gripper of the follower arms.
+        self.leader_arm.write("Torque_Enable", 1, "gripper")
+        self.leader_arm.write("Goal_Position", DMXL_OPEN_GRIPPER, "gripper")
 
     def get_observation_state(self, keys_only: bool = False) -> dict:
         keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "gripper.pos", "gripper.cur"]
@@ -296,16 +327,24 @@ class AlmondRobot:
         goal_pos = self.leader_arm.read("Present_Position")
         gripper_pos = goal_pos[6]
         goal_pos = [(float(x) - z) / DYNAMIXEL_RESOLUTION * 360 for x, z in zip(goal_pos[:6], DMXL_ZERO_POSITION)]
+        goal_pos[5] = (goal_pos[5] + 180) % 360 - 180
         goal_pos = [g + z for g, z in zip(goal_pos, FR_ZERO_POSITION)]
 
         # Only run initialization sequence on first teleop step
-        if self._is_first_teleop_step:
+        if self._is_first_teleop_step or time.time() - self._last_gripper_update <= 2:
             self.arm.ServoMoveEnd()
             self.arm.MoveJ(goal_pos, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
             self.arm.ServoMoveStart()
             self._is_first_teleop_step = False
-        elif not self._gripper_thread_active and any(abs(g - c) > 0.1 for g, c in zip(goal_pos[:6], cur_pos)):
-            self.arm.ServoJ(goal_pos[:6], axisPos=[0]*6, vel=AlmondRobot.ARM_VELOCITY, cmdT=0.04761904761)
+            self.smoothed_positions = goal_pos[:6]  # Initialize smoothed positions
+        else:
+            # Apply smoothing to the goal positions
+            for i in range(6):
+                self.smoothed_positions[i] = (self.smoothing_factor * goal_pos[i] + 
+                                           (1 - self.smoothing_factor) * self.smoothed_positions[i])
+            
+            if any(abs(g - c) > 0.1 for g, c in zip(self.smoothed_positions, cur_pos)):
+                self.arm.ServoJ(self.smoothed_positions, axisPos=[0]*6, cmdT=1/30,)
 
         gripper_percent = (gripper_pos - DMXL_CLOSE_GRIPPER) / (DMXL_OPEN_GRIPPER - DMXL_CLOSE_GRIPPER) * 100
         gripper_percent = max(0, min(100, gripper_percent))
@@ -319,14 +358,7 @@ class AlmondRobot:
 
         # Only check stability if we have a pending update and enough time has passed
         if self._pending_gripper_update and current_time - self._last_gripper_change_time >= 1.0:
-            def move_gripper():
-                self._gripper_thread_active = True
-                try:
-                    self._gripper_rpc.MoveGripper(1, gripper_percent, 0, 50, 5000, 0, 0, 0, 0, 0)
-                finally:
-                    self._gripper_thread_active = False
-                    self._is_first_teleop_step = True
-            Thread(target=move_gripper).start()
+            self._gripper_rpc.MoveGripper(1, gripper_percent, 0, 50, 5000, 0, 0, 0, 0, 0)
 
             self._last_gripper_update = current_time
             self._pending_gripper_update = False
@@ -344,14 +376,14 @@ class AlmondRobot:
         observation = torch.as_tensor(list(observation.values()))
         action = torch.as_tensor(list(action.values()))
 
-        # Capture images from cameras
-        for name in self.cameras:
-            before_camread_t = time.perf_counter()
+        # # Capture images from cameras
+        # for name in self.cameras:
+        #     before_camread_t = time.perf_counter()
 
-            self.cameras[name].save_frame()
+            # self.cameras[name].save_frame()
 
-            self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
-            self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
+            # self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
+            # self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
 
         # Populate output dictionaries
         obs_dict, action_dict = {}, {}
@@ -370,31 +402,31 @@ class AlmondRobot:
 
         # Capture images from cameras
         images = {}
-        for name in self.cameras:
-            before_camread_t = time.perf_counter()
-            images[name] = self.cameras[name].async_read()
+        # for name in self.cameras:
+            # before_camread_t = time.perf_counter()
+            # images[name] = self.cameras[name].async_read()
 
-            if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
-                left, right, depth = images[name]
-                images[f"{name}.left"] = torch.from_numpy(left)
-                images[f"{name}.right"] = torch.from_numpy(right)
-                images[f"{name}.depth"] = torch.from_numpy(depth)
-            else:
-                left, right = images[name]
-                images[f"{name}.left"] = torch.from_numpy(left)
-                images[f"{name}.right"] = torch.from_numpy(right)
+            # if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
+            #     left, right, depth = images[name]
+            #     images[f"{name}.left"] = torch.from_numpy(left)
+            #     images[f"{name}.right"] = torch.from_numpy(right)
+            #     images[f"{name}.depth"] = torch.from_numpy(depth)
+            # else:
+            #     left, right = images[name]
+            #     images[f"{name}.left"] = torch.from_numpy(left)
+            #     images[f"{name}.right"] = torch.from_numpy(right)
 
-            self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
-            self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
+            # self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
+            # self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
 
         # Populate output dictionaries
         obs_dict = {}
-        obs_dict["observation.state"] = observation
-        for name in self.cameras:
-            obs_dict[f"observation.images.{name}.left"] = images[f"{name}.left"]
-            obs_dict[f"observation.images.{name}.right"] = images[f"{name}.right"]
-            if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
-                obs_dict[f"observation.images.{name}.depth"] = images[f"{name}.depth"]
+        # obs_dict["observation.state"] = observation
+        # for name in self.cameras:
+        #     obs_dict[f"observation.images.{name}.left"] = images[f"{name}.left"]
+        #     obs_dict[f"observation.images.{name}.right"] = images[f"{name}.right"]
+        #     if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
+        #         obs_dict[f"observation.images.{name}.depth"] = images[f"{name}.depth"]
 
         return obs_dict
 
@@ -424,13 +456,16 @@ class AlmondRobot:
         self.arm.CloseRPC()
         self.arm = None
 
+        self.leader_arm.write("Torque_Enable", 0)
+        self.leader_arm.disconnect()
+
         if self._gripper_rpc is not None:
             self._gripper_rpc.CloseRPC()
             self._gripper_rpc = None
 
-        if len(self.cameras) > 0:
-            for cam in self.cameras.values():
-                cam.disconnect()
+        # if len(self.cameras) > 0:
+        #     for cam in self.cameras.values():
+        #         cam.disconnect()
 
         self.is_connected = False
 
