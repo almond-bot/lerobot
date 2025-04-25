@@ -69,9 +69,9 @@ class AlmondRobot:
         self.last_arm_state: RobotStatePkg | None = None
         self.arm_state_stop_event = Event()
 
-        self.target_gripper_position = 0
-        self.target_gripper_force = 0
+        self.target_gripper_position = 100
 
+        self._last_teleop_time = None
         self._is_first_teleop_step = True
         self._last_gripper_update = 0
         self._last_gripper_percent = 0
@@ -289,29 +289,21 @@ class AlmondRobot:
         self.leader_arm.write("Goal_Position", DMXL_OPEN_GRIPPER, "gripper")
 
     def get_observation_state(self, keys_only: bool = False) -> dict:
-        keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "gripper.pos", "gripper.cur"]
+        keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "j1.tor", "j2.tor", "j3.tor", "j4.tor", "j5.tor", "j6.tor", "gripper.pos", "gripper.cur"]
         if keys_only:
             return keys
-        
+
         values = [float(self.arm_state.jt_cur_pos[i]) if self.arm_state is not None else float(0) for i in range(6)]
+        values.extend([float(self.arm_state.jt_cur_tor[i]) if self.arm_state is not None else float(0) for i in range(6)])
         values.append(float(self.arm_state.gripper_position) if self.arm_state is not None else float(0))
         values.append(float(self.arm_state.gripper_current) if self.arm_state is not None else float(0))
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
-    def get_action_state(self, keys_only: bool = False) -> dict:
-        keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "j1.vel", "j2.vel", "j3.vel", "j4.vel", "j5.vel", "j6.vel", "gripper.pos", "gripper.for"]
+    def get_action_state(self, values: list[float], keys_only: bool = False) -> dict:
+        keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "gripper.pos"]
         if keys_only:
             return keys
-
-        if self.last_arm_state is None:
-            values = [float(0) for _ in range(6)]
-        else:
-            values = [float(self.arm_state.jt_cur_pos[i] - self.last_arm_state.jt_cur_pos[i]) for i in range(6)]
-
-        values.extend([float(self.arm_state.actual_qd[i]) if self.arm_state is not None else float(0) for i in range(6)])
-        values.append(float(self.target_gripper_position))
-        values.append(float(self.target_gripper_force))
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
@@ -321,6 +313,13 @@ class AlmondRobot:
         # TODO(aliberts): return ndarrays instead of torch.Tensors
         if not self.is_connected:
             raise ConnectionError()
+
+        current_time = time.perf_counter()
+        if self._last_teleop_time is None:
+            self.teleop_fps = 0
+        else:
+            self.teleop_fps = 1.0 / (current_time - self._last_teleop_time)
+        self._last_teleop_time = current_time
 
         cur_pos = self.arm_state.jt_cur_pos
         goal_pos = self.leader_arm.read("Present_Position")
@@ -343,11 +342,10 @@ class AlmondRobot:
                                            (1 - self.smoothing_factor) * self.smoothed_positions[i])
             
             if any(abs(g - c) > 0.1 for g, c in zip(self.smoothed_positions, cur_pos)):
-                self.arm.ServoJ(self.smoothed_positions, axisPos=[0]*6, cmdT=1/30,)
+                self.arm.ServoJ(self.smoothed_positions, axisPos=[0]*6, cmdT=1/(self.teleop_fps or 20))
 
         gripper_percent = (gripper_pos - DMXL_CLOSE_GRIPPER) / (DMXL_OPEN_GRIPPER - DMXL_CLOSE_GRIPPER) * 100
         gripper_percent = max(0, min(100, gripper_percent))
-        current_time = time.time()
 
         # Check if position has changed significantly
         if abs(gripper_percent - self._last_gripper_percent) > 10:
@@ -357,7 +355,8 @@ class AlmondRobot:
 
         # Only check stability if we have a pending update and enough time has passed
         if self._pending_gripper_update and current_time - self._last_gripper_change_time >= 1.0:
-            self.gripper.MoveGripper(1, gripper_percent, 0, 50, 5000, 0, 0, 0, 0, 0)
+            self.target_gripper_position = gripper_percent
+            self.gripper.MoveGripper(1, gripper_percent, 0, 100, 5000, 0, 0, 0, 0, 0)
 
             self._last_gripper_update = current_time
             self._pending_gripper_update = False
@@ -367,7 +366,7 @@ class AlmondRobot:
 
         before_read_t = time.perf_counter()
         observation = self.get_observation_state()
-        action = self.get_action_state()
+        action = self.get_action_state(values=goal_pos[:6] + [self.target_gripper_position])
         self.logs["read_pos_dt_s"] = time.perf_counter() - before_read_t
 
         self.last_arm_state = self.arm_state
