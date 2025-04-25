@@ -145,7 +145,9 @@ class AlmondRobot:
                             checkdata = checkdata | recvbuf[i]
 
                             if checksum == checkdata:
-                                self.arm_state = RobotStatePkg.from_buffer_copy(recvbuf)
+                                arm_state = RobotStatePkg.from_buffer_copy(recvbuf)
+                                arm_state.gripper_position = arm_state.gripper_position or self.arm_state.gripper_position
+                                self.arm_state = arm_state
                             else:
                                 find_head_flag = False
                                 index = 0
@@ -289,14 +291,13 @@ class AlmondRobot:
         self.leader_arm.write("Goal_Position", DMXL_OPEN_GRIPPER, "gripper")
 
     def get_observation_state(self, keys_only: bool = False) -> dict:
-        keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "j1.tor", "j2.tor", "j3.tor", "j4.tor", "j5.tor", "j6.tor", "gripper.pos", "gripper.cur"]
+        keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "j1.tor", "j2.tor", "j3.tor", "j4.tor", "j5.tor", "j6.tor", "gripper.pos"]
         if keys_only:
             return keys
 
         values = [float(self.arm_state.jt_cur_pos[i]) if self.arm_state is not None else float(0) for i in range(6)]
         values.extend([float(self.arm_state.jt_cur_tor[i]) if self.arm_state is not None else float(0) for i in range(6)])
         values.append(float(self.arm_state.gripper_position) if self.arm_state is not None else float(0))
-        values.append(float(self.arm_state.gripper_current) if self.arm_state is not None else float(0))
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
