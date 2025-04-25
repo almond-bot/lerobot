@@ -77,7 +77,6 @@ class AlmondRobot:
         self._last_gripper_percent = 0
         self._last_gripper_change_time = 0
         self._pending_gripper_update = False
-        self._gripper_rpc = None
         
         # Add smoothing parameters
         self.smoothing_factor = 0.2  # More aggressive smoothing (lower = smoother)
@@ -219,9 +218,9 @@ class AlmondRobot:
             return
 
         # Create separate RPC connection for gripper
-        self._gripper_rpc = RPC(AlmondRobot.ARM_IP)
-        if not self._gripper_rpc.is_conect:
-            self._gripper_rpc = None
+        self.gripper = RPC(AlmondRobot.ARM_IP)
+        if not self.gripper.is_conect:
+            self.gripper = None
             return
 
         self.arm.ResetAllError()
@@ -331,7 +330,7 @@ class AlmondRobot:
         goal_pos = [g + z for g, z in zip(goal_pos, FR_ZERO_POSITION)]
 
         # Only run initialization sequence on first teleop step
-        if self._is_first_teleop_step or time.time() - self._last_gripper_update <= 2:
+        if self._is_first_teleop_step:
             self.arm.ServoMoveEnd()
             self.arm.MoveJ(goal_pos, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
             self.arm.ServoMoveStart()
@@ -358,7 +357,7 @@ class AlmondRobot:
 
         # Only check stability if we have a pending update and enough time has passed
         if self._pending_gripper_update and current_time - self._last_gripper_change_time >= 1.0:
-            self._gripper_rpc.MoveGripper(1, gripper_percent, 0, 50, 5000, 0, 0, 0, 0, 0)
+            self.gripper.MoveGripper(1, gripper_percent, 0, 50, 5000, 0, 0, 0, 0, 0)
 
             self._last_gripper_update = current_time
             self._pending_gripper_update = False
@@ -459,9 +458,9 @@ class AlmondRobot:
         self.leader_arm.write("Torque_Enable", 0)
         self.leader_arm.disconnect()
 
-        if self._gripper_rpc is not None:
-            self._gripper_rpc.CloseRPC()
-            self._gripper_rpc = None
+        if self.gripper is not None:
+            self.gripper.CloseRPC()
+            self.gripper = None
 
         # if len(self.cameras) > 0:
         #     for cam in self.cameras.values():
