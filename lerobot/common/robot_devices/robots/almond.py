@@ -23,6 +23,7 @@ from threading import Thread, Event
 
 import torch
 
+from lerobot.common.robot_devices.motors.almond_gripper import AGGripper
 from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
 from lerobot.common.robot_devices.cameras.utils import make_cameras_from_configs
 from lerobot.common.robot_devices.robots.fairino import RPC, RobotStatePkg
@@ -69,14 +70,8 @@ class AlmondRobot:
         self.last_arm_state: RobotStatePkg | None = None
         self.arm_state_stop_event = Event()
 
-        self.target_gripper_position = 100
-
         self._last_teleop_time = None
         self._is_first_teleop_step = True
-        self._last_gripper_update = 0
-        self._last_gripper_percent = 0
-        self._last_gripper_change_time = 0
-        self._pending_gripper_update = False
         
         # Add smoothing parameters
         self.smoothing_factor = 0.2  # More aggressive smoothing (lower = smoother)
@@ -145,9 +140,7 @@ class AlmondRobot:
                             checkdata = checkdata | recvbuf[i]
 
                             if checksum == checkdata:
-                                arm_state = RobotStatePkg.from_buffer_copy(recvbuf)
-                                arm_state.gripper_position = arm_state.gripper_position or self.arm_state.gripper_position
-                                self.arm_state = arm_state
+                                self.arm_state = RobotStatePkg.from_buffer_copy(recvbuf)
                             else:
                                 find_head_flag = False
                                 index = 0
@@ -220,10 +213,9 @@ class AlmondRobot:
             return
 
         # Create separate RPC connection for gripper
-        self.gripper = RPC(AlmondRobot.ARM_IP)
-        if not self.gripper.is_conect:
-            self.gripper = None
-            return
+        self.gripper = AGGripper()
+        self.gripper.initialize()
+        self.gripper.set_force(100)
 
         self.arm.ResetAllError()
         self.arm.SetRobotRealtimeStateSamplePeriod(1000 / AlmondRobot.ARM_STATUS_RATE)
@@ -233,8 +225,6 @@ class AlmondRobot:
 
         time.sleep(2)
         self.arm.ResetAllError()
-
-        self.arm.Mode(1)
 
         get_arm_status_thread = Thread(target=run_async_in_thread, args=(self._get_arm_status(),))
         get_arm_status_thread.start()
@@ -297,7 +287,7 @@ class AlmondRobot:
 
         values = [float(self.arm_state.jt_cur_pos[i]) if self.arm_state is not None else float(0) for i in range(6)]
         values.extend([float(self.arm_state.jt_cur_tor[i]) if self.arm_state is not None else float(0) for i in range(6)])
-        values.append(float(self.arm_state.gripper_position) if self.arm_state is not None else float(0))
+        values.append(float(self.gripper.get_current_position()) if False else float(0))
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
@@ -324,50 +314,40 @@ class AlmondRobot:
 
         cur_pos = self.arm_state.jt_cur_pos
         goal_pos = self.leader_arm.read("Present_Position")
-        gripper_pos = goal_pos[6]
-        goal_pos = [(float(x) - z) / DYNAMIXEL_RESOLUTION * 360 for x, z in zip(goal_pos[:6], DMXL_ZERO_POSITION)]
-        goal_pos[5] = (goal_pos[5] + 180) % 360 - 180
-        goal_pos = [g + z for g, z in zip(goal_pos, FR_ZERO_POSITION)]
+
+        arm_pos, gripper_pos = goal_pos[:6], goal_pos[6]
+
+        arm_pos = [(float(x) - z) / DYNAMIXEL_RESOLUTION * 360 for x, z in zip(arm_pos, DMXL_ZERO_POSITION)]
+        arm_pos[5] = (arm_pos[5] + 180) % 360 - 180
+        arm_pos = [g + z for g, z in zip(arm_pos, FR_ZERO_POSITION)]
+
+        gripper_percent = (gripper_pos - DMXL_CLOSE_GRIPPER) / (DMXL_OPEN_GRIPPER - DMXL_CLOSE_GRIPPER) * 100
+        gripper_percent = max(0, min(100, gripper_percent))
 
         # Only run initialization sequence on first teleop step
         if self._is_first_teleop_step:
             self.arm.ServoMoveEnd()
-            self.arm.MoveJ(goal_pos, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
+            self.arm.MoveJ(arm_pos, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
             self.arm.ServoMoveStart()
             self._is_first_teleop_step = False
-            self.smoothed_positions = goal_pos[:6]  # Initialize smoothed positions
+            self.smoothed_positions = arm_pos  # Initialize smoothed positions
         else:
             # Apply smoothing to the goal positions
             for i in range(6):
-                self.smoothed_positions[i] = (self.smoothing_factor * goal_pos[i] + 
+                self.smoothed_positions[i] = (self.smoothing_factor * arm_pos[i] + 
                                            (1 - self.smoothing_factor) * self.smoothed_positions[i])
             
             if any(abs(g - c) > 0.1 for g, c in zip(self.smoothed_positions, cur_pos)):
                 self.arm.ServoJ(self.smoothed_positions, axisPos=[0]*6, cmdT=1/(self.teleop_fps or 20))
 
-        gripper_percent = (gripper_pos - DMXL_CLOSE_GRIPPER) / (DMXL_OPEN_GRIPPER - DMXL_CLOSE_GRIPPER) * 100
-        gripper_percent = max(0, min(100, gripper_percent))
-
-        # Check if position has changed significantly
-        if abs(gripper_percent - self._last_gripper_percent) > 10:
-            self._last_gripper_change_time = current_time
-            self._last_gripper_percent = gripper_percent
-            self._pending_gripper_update = True
-
-        # Only check stability if we have a pending update and enough time has passed
-        if self._pending_gripper_update and current_time - self._last_gripper_change_time >= 1.0:
-            self.target_gripper_position = gripper_percent
-            self.gripper.MoveGripper(1, gripper_percent, 0, 100, 5000, 0, 0, 0, 0, 0)
-
-            self._last_gripper_update = current_time
-            self._pending_gripper_update = False
+        self.gripper.set_position(gripper_percent)
 
         if not record_data:
             return
 
         before_read_t = time.perf_counter()
         observation = self.get_observation_state()
-        action = self.get_action_state(values=goal_pos[:6] + [self.target_gripper_position])
+        action = self.get_action_state(values=arm_pos + [gripper_percent])
         self.logs["read_pos_dt_s"] = time.perf_counter() - before_read_t
 
         self.last_arm_state = self.arm_state
@@ -450,7 +430,8 @@ class AlmondRobot:
         self.arm_state_stop_event.set()
 
         self.arm.ServoMoveEnd()
-        self.arm.MoveGripper(1, 0, 0, 0, 5000, 0, 0, 0, 0, 0)
+        self.gripper.set_position(0)
+        self.gripper.close()
 
         self.arm.CloseRPC()
         self.arm = None
