@@ -220,12 +220,6 @@ class AlmondRobot:
         self.arm.ResetAllError()
         self.arm.SetRobotRealtimeStateSamplePeriod(1000 / AlmondRobot.ARM_STATUS_RATE)
 
-        self.arm.SetGripperConfig(4, 0)
-        self.arm.ActGripper(1, 1)
-
-        time.sleep(2)
-        self.arm.ResetAllError()
-
         get_arm_status_thread = Thread(target=run_async_in_thread, args=(self._get_arm_status(),))
         get_arm_status_thread.start()
 
