@@ -228,9 +228,9 @@ class AlmondRobot:
         self.leader_arm.connect()
         self.leader_arm.write("Torque_Enable", 0)
 
-        # for name in self.cameras:
-        #     self.cameras[name].connect()
-        #     self.is_connected = self.is_connected and self.cameras[name].is_connected
+        for name in self.cameras:
+            self.cameras[name].connect()
+            self.is_connected = self.is_connected and self.cameras[name].is_connected
 
         if not self.is_connected:
             print("Could not connect to the cameras, check that all cameras are plugged-in.")
@@ -349,14 +349,14 @@ class AlmondRobot:
         observation = torch.as_tensor(list(observation.values()))
         action = torch.as_tensor(list(action.values()))
 
-        # # Capture images from cameras
-        # for name in self.cameras:
-        #     before_camread_t = time.perf_counter()
+        # Capture images from cameras
+        for name in self.cameras:
+            before_camread_t = time.perf_counter()
 
-            # self.cameras[name].save_frame()
+            self.cameras[name].save_frame()
 
-            # self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
-            # self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
+            self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
+            self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
 
         # Populate output dictionaries
         obs_dict, action_dict = {}, {}
@@ -375,31 +375,31 @@ class AlmondRobot:
 
         # Capture images from cameras
         images = {}
-        # for name in self.cameras:
-            # before_camread_t = time.perf_counter()
-            # images[name] = self.cameras[name].async_read()
+        for name in self.cameras:
+            before_camread_t = time.perf_counter()
+            images[name] = self.cameras[name].async_read()
 
-            # if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
-            #     left, right, depth = images[name]
-            #     images[f"{name}.left"] = torch.from_numpy(left)
-            #     images[f"{name}.right"] = torch.from_numpy(right)
-            #     images[f"{name}.depth"] = torch.from_numpy(depth)
-            # else:
-            #     left, right = images[name]
-            #     images[f"{name}.left"] = torch.from_numpy(left)
-            #     images[f"{name}.right"] = torch.from_numpy(right)
+            if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
+                left, right, depth = images[name]
+                images[f"{name}.left"] = torch.from_numpy(left)
+                images[f"{name}.right"] = torch.from_numpy(right)
+                images[f"{name}.depth"] = torch.from_numpy(depth)
+            else:
+                left, right = images[name]
+                images[f"{name}.left"] = torch.from_numpy(left)
+                images[f"{name}.right"] = torch.from_numpy(right)
 
-            # self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
-            # self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
+            self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
+            self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
 
         # Populate output dictionaries
         obs_dict = {}
-        # obs_dict["observation.state"] = observation
-        # for name in self.cameras:
-        #     obs_dict[f"observation.images.{name}.left"] = images[f"{name}.left"]
-        #     obs_dict[f"observation.images.{name}.right"] = images[f"{name}.right"]
-        #     if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
-        #         obs_dict[f"observation.images.{name}.depth"] = images[f"{name}.depth"]
+        obs_dict["observation.state"] = observation
+        for name in self.cameras:
+            obs_dict[f"observation.images.{name}.left"] = images[f"{name}.left"]
+            obs_dict[f"observation.images.{name}.right"] = images[f"{name}.right"]
+            if hasattr(self.cameras[name], "use_depth") and self.cameras[name].use_depth:
+                obs_dict[f"observation.images.{name}.depth"] = images[f"{name}.depth"]
 
         return obs_dict
 
@@ -437,9 +437,9 @@ class AlmondRobot:
             self.gripper.CloseRPC()
             self.gripper = None
 
-        # if len(self.cameras) > 0:
-        #     for cam in self.cameras.values():
-        #         cam.disconnect()
+        if len(self.cameras) > 0:
+            for cam in self.cameras.values():
+                cam.disconnect()
 
         self.is_connected = False
 
