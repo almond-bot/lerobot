@@ -1,11 +1,13 @@
-rm -fr ~/.cache/huggingface/lerobot/shawnptl8/clean_workspace
+TASK=$1
+
+rm -fr ~/.cache/huggingface/lerobot/shawnptl8/${TASK}
 
 uv run lerobot/scripts/control_robot.py \
     --robot.type=almond \
     --control.type=record \
-    --control.single_task="Put tools away." \
+    --control.single_task="${TASK}" \
     --control.fps=20 \
-    --control.repo_id=shawnptl8/clean_workspace \
+    --control.repo_id=shawnptl8/${TASK} \
     --control.warmup_time_s=15 \
     --control.episode_time_s=60 \
     --control.reset_time_s=30 \

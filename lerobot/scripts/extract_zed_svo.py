@@ -23,7 +23,6 @@ import cv2
 import pyzed.sl as sl
 from tqdm import tqdm
 import numpy as np
-
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.compute_stats import compute_episode_stats
 from lerobot.common.datasets.utils import write_episode_stats
@@ -154,13 +153,13 @@ def process_episode_stats(dataset: LeRobotDataset, episode_index: int):
 
 def main():
     parser = argparse.ArgumentParser(description="Convert ZED SVO files to MP4 and calculate statistics.")
-    parser.add_argument("--dataset-dir", type=Path, required=True, help="Path to the LeRobotDataset directory")
+    parser.add_argument("--dataset_repo_id", type=str, required=True, help="Path to the LeRobotDataset directory")
     args = parser.parse_args()
 
     init_logging()
 
     # Load the dataset
-    dataset = LeRobotDataset(args.dataset_dir)
+    dataset = LeRobotDataset(args.dataset_repo_id)
     fps = dataset.meta.info["fps"]
 
     # Find all SVO files in the dataset directory
