@@ -71,8 +71,8 @@ class AlmondRobot:
         self.last_arm_state: RobotStatePkg | None = None
         self.arm_state_stop_event = Event()
 
-        self._last_teleop_time = None
-        self._is_first_teleop_step = True
+        self.last_teleop_time = None
+        self.is_first_teleop_step = True
         
         self.smoothed_positions = [0.0] * 6
 
@@ -299,11 +299,11 @@ class AlmondRobot:
             raise ConnectionError()
 
         current_time = time.perf_counter()
-        if self._last_teleop_time is None:
+        if self.last_teleop_time is None:
             self.teleop_fps = 0
         else:
-            self.teleop_fps = 1.0 / (current_time - self._last_teleop_time)
-        self._last_teleop_time = current_time
+            self.teleop_fps = 1.0 / (current_time - self.last_teleop_time)
+        self.last_teleop_time = current_time
 
         cur_pos = self.arm_state.jt_cur_pos
         goal_pos = self.leader_arm.read("Present_Position")
@@ -318,11 +318,11 @@ class AlmondRobot:
         gripper_percent = max(0, min(100, gripper_percent))
 
         # Only run initialization sequence on first teleop step
-        if self._is_first_teleop_step:
+        if self.is_first_teleop_step:
             self.arm.ServoMoveEnd()
             self.arm.MoveJ(arm_pos, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
             self.arm.ServoMoveStart()
-            self._is_first_teleop_step = False
+            self.is_first_teleop_step = False
             self.smoothed_positions = arm_pos  # Initialize smoothed positions
         else:
             # Apply smoothing to the goal positions
