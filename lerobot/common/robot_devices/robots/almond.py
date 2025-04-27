@@ -50,7 +50,8 @@ class AlmondRobot:
     ARM_STATUS_RATE = 65 # Hz
     ARM_VELOCITY = 50
     ARM_ACCELERATION = 20
-    JOINT_DIRECTION_MULTIPLIER = 1
+    SMOOTHING_FACTOR = 0.1
+    POSITION_DIFF_THRESHOLD = 0.1
 
     def __init__(self, config: AlmondRobotConfig | None = None, **kwargs):
         super().__init__()
@@ -73,8 +74,6 @@ class AlmondRobot:
         self._last_teleop_time = None
         self._is_first_teleop_step = True
         
-        # Add smoothing parameters
-        self.smoothing_factor = 0.2  # More aggressive smoothing (lower = smoother)
         self.smoothed_positions = [0.0] * 6
 
     async def _get_arm_status(self):
@@ -328,10 +327,11 @@ class AlmondRobot:
         else:
             # Apply smoothing to the goal positions
             for i in range(6):
-                self.smoothed_positions[i] = (self.smoothing_factor * arm_pos[i] + 
-                                           (1 - self.smoothing_factor) * self.smoothed_positions[i])
+                self.smoothed_positions[i] = (AlmondRobot.SMOOTHING_FACTOR * arm_pos[i] + 
+                                           (1 - AlmondRobot.SMOOTHING_FACTOR) * self.smoothed_positions[i])
             
-            if any(abs(g - c) > 0.1 for g, c in zip(self.smoothed_positions, cur_pos)):
+            # Only send command if the smoothed position difference is above threshold
+            if any(abs(g - c) > AlmondRobot.POSITION_DIFF_THRESHOLD for g, c in zip(self.smoothed_positions, cur_pos)):
                 self.arm.ServoJ(self.smoothed_positions, axisPos=[0]*6, cmdT=1/(self.teleop_fps or 20))
 
         self.gripper.set_position(gripper_percent)
