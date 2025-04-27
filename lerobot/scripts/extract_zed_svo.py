@@ -22,21 +22,18 @@ from pathlib import Path
 import cv2
 import pyzed.sl as sl
 from tqdm import tqdm
+import numpy as np
 
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.compute_stats import compute_episode_stats
+from lerobot.common.datasets.utils import write_episode_stats
 from lerobot.common.utils.utils import init_logging
 
 
-def extract_svo_frames(svo_path: Path, output_path: Path, fps: int, features: dict):
+def extract_svo_frames(svo_path: Path, dataset_root: Path, fps: int, features: dict):
     """Convert a ZED SVO file to MP4 format, saving left, right, and depth (if available) as separate files."""
     # Get camera name from SVO file
     camera_name = svo_path.stem
-
-    # Create output directories if they don't exist
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    images_dir = output_path.parent.parent.parent / "images" / f"observation.images.{camera_name}" / output_path.parent.name
-    images_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize ZED camera
     zed = sl.Camera()
@@ -65,12 +62,40 @@ def extract_svo_frames(svo_path: Path, output_path: Path, fps: int, features: di
     right_writer = None
     depth_writer = None
 
+    # Create output directories
+    videos_dir = dataset_root / "videos"
+    images_dir = dataset_root / "images"
+    
+    # Find the highest existing chunk number
+    chunks = sorted([int(d.name.split("-")[1]) for d in videos_dir.glob("chunk-*") if d.is_dir()])
+    if not chunks:
+        raise RuntimeError("No chunk directories found in videos folder. Please create at least one chunk directory (e.g., chunk-000)")
+    chunk_dir = videos_dir / f"chunk-{chunks[-1]:03d}"
+
+    # Create video output paths
     if f"observation.images.{camera_name}.left" in features:
-        left_writer = cv2.VideoWriter(str(output_path.with_name(f"{output_path.stem}.left.mp4")), fourcc, fps, (width, height))
+        left_video_dir = chunk_dir / f"observation.images.{camera_name}.left"
+        left_video_dir.mkdir(parents=True, exist_ok=True)
+        left_writer = cv2.VideoWriter(str(left_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (width, height))
     if f"observation.images.{camera_name}.right" in features:
-        right_writer = cv2.VideoWriter(str(output_path.with_name(f"{output_path.stem}.right.mp4")), fourcc, fps, (width, height))
+        right_video_dir = chunk_dir / f"observation.images.{camera_name}.right"
+        right_video_dir.mkdir(parents=True, exist_ok=True)
+        right_writer = cv2.VideoWriter(str(right_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (width, height))
     if f"observation.images.{camera_name}.depth" in features:
-        depth_writer = cv2.VideoWriter(str(output_path.with_name(f"{output_path.stem}.depth.mp4")), fourcc, fps, (width, height))
+        depth_video_dir = chunk_dir / f"observation.images.{camera_name}.depth"
+        depth_video_dir.mkdir(parents=True, exist_ok=True)
+        depth_writer = cv2.VideoWriter(str(depth_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (width, height))
+
+    # Create image output paths
+    if f"observation.images.{camera_name}.left" in features:
+        left_image_dir = images_dir / f"observation.images.{camera_name}.left" / svo_path.parent.name
+        left_image_dir.mkdir(parents=True, exist_ok=True)
+    if f"observation.images.{camera_name}.right" in features:
+        right_image_dir = images_dir / f"observation.images.{camera_name}.right" / svo_path.parent.name
+        right_image_dir.mkdir(parents=True, exist_ok=True)
+    if f"observation.images.{camera_name}.depth" in features:
+        depth_image_dir = images_dir / f"observation.images.{camera_name}.depth" / svo_path.parent.name
+        depth_image_dir.mkdir(parents=True, exist_ok=True)
 
     # Process frames
     for i in tqdm(range(nb_frames), desc=f"Converting {svo_path.name}"):
@@ -80,20 +105,20 @@ def extract_svo_frames(svo_path: Path, output_path: Path, fps: int, features: di
                 zed.retrieve_image(image, sl.VIEW.LEFT)
                 left = image.get_data()[..., :3]
                 left_writer.write(left)
-                cv2.imwrite(str(images_dir / "left" / f"frame_{i:06d}.png"), left)
+                cv2.imwrite(str(left_image_dir / f"frame_{i:06d}.png"), left)
 
             if right_writer is not None:
                 zed.retrieve_image(image, sl.VIEW.RIGHT)
                 right = image.get_data()[..., :3]
                 right_writer.write(right)
-                cv2.imwrite(str(images_dir / "right" / f"frame_{i:06d}.png"), right)
+                cv2.imwrite(str(right_image_dir / f"frame_{i:06d}.png"), right)
 
             # If depth is enabled, retrieve and write depth map
             if depth_writer is not None:
                 zed.retrieve_image(depth, sl.VIEW.DEPTH)
                 depth_image = depth.get_data()[..., :3]
                 depth_writer.write(depth_image)
-                cv2.imwrite(str(images_dir / "depth" / f"frame_{i:06d}.png"), depth_image)
+                cv2.imwrite(str(depth_image_dir / f"frame_{i:06d}.png"), depth_image)
 
     # Cleanup
     if left_writer is not None:
@@ -107,9 +132,24 @@ def extract_svo_frames(svo_path: Path, output_path: Path, fps: int, features: di
 
 def process_episode_stats(dataset: LeRobotDataset, episode_index: int):
     """Calculate and save statistics for a specific episode."""
-    episode_buffer = dataset.get_episode_buffer(episode_index)
-    ep_stats = compute_episode_stats(episode_buffer, dataset.features)
-    dataset.meta.save_episode_stats(episode_index, ep_stats)
+    # Get the episode data from the dataset
+    ep_start_idx = dataset.episode_data_index["from"][episode_index]
+    ep_end_idx = dataset.episode_data_index["to"][episode_index]
+    ep_data = dataset.hf_dataset.select(range(ep_start_idx, ep_end_idx))
+    
+    # Create episode_data dictionary with the correct structure
+    episode_data = {}
+    for key, ft in dataset.features.items():
+        if ft["dtype"] in ["image", "video"]:
+            # For images and videos, we need to get the paths
+            episode_data[key] = [str(dataset.root / path) for path in ep_data[key]]
+        else:
+            # For other data types, we can use the numpy array directly
+            episode_data[key] = np.array(ep_data[key])
+    
+    # Compute and save the episode statistics
+    episode_stats = compute_episode_stats(episode_data, dataset.features)
+    write_episode_stats(episode_index, episode_stats, dataset.root)
 
 
 def main():
@@ -123,46 +163,38 @@ def main():
     dataset = LeRobotDataset(args.dataset_dir)
     fps = dataset.meta.info["fps"]
 
-    # Find all chunk directories
-    videos_dir = dataset.root / "videos"
-    chunks = sorted([int(d.name.split("-")[1]) for d in videos_dir.glob("chunk-*") if d.is_dir()])
-    if not chunks:
-        raise RuntimeError("No chunk directories found in videos folder. Please create at least one chunk directory (e.g., chunk-000)")
+    # Find all SVO files in the dataset directory
+    svo_files = list(dataset.root.glob("videos/chunk-*/observation.images.*/episode_*.svo2"))
+    if not svo_files:
+        raise RuntimeError("No SVO files found in dataset directory")
 
-    # Process each chunk
-    for chunk_num in chunks:
-        chunk_dir = videos_dir / f"chunk-{chunk_num:03d}"
-        logging.info(f"Processing chunk {chunk_num}")
+    # Group SVO files by their parent directory
+    svo_files_by_dir = {}
+    for svo_path in svo_files:
+        parent_dir = svo_path.parent
+        if parent_dir not in svo_files_by_dir:
+            svo_files_by_dir[parent_dir] = []
+        svo_files_by_dir[parent_dir].append(svo_path)
 
-        # Track processed episodes
-        processed_episodes = set()
+    # Process each directory's SVO files
+    for parent_dir, svo_files in svo_files_by_dir.items():
+        logging.info(f"Processing directory: {parent_dir}")
+        for svo_path in tqdm(svo_files, desc=f"Processing SVO files in {parent_dir.name}"):
+            # Get episode number from the SVO filename
+            episode_num = svo_path.stem.split("_")[1]
+            
+            # Process the SVO file directly
+            extract_svo_frames(svo_path, dataset.root, fps, dataset.meta.info["features"])
+            process_episode_stats(dataset, int(episode_num))
 
-        # Find all episode directories in the chunk
-        for camera_dir in chunk_dir.glob("observation.images.*"):
-            camera_name = camera_dir.name.split(".")[-1]
-            for episode_dir in camera_dir.glob("episode_*"):
-                episode_index = int(episode_dir.name.split("_")[1])
-                processed_episodes.add(episode_index)
-                logging.info(f"Processing episode {episode_index} in {camera_name}")
+            # Delete the processed SVO file
+            logging.info(f"Removing SVO file: {svo_path}")
+            svo_path.unlink()
 
-                # Find SVO file for this episode
-                svo_path = dataset.root / f"episode_{episode_index:06d}" / f"{camera_name}.svo2"
-                if not svo_path.exists():
-                    logging.warning(f"SVO file not found: {svo_path}")
-                    continue
-
-                # Convert SVO to MP4
-                extract_svo_frames(svo_path, episode_dir, fps, dataset.meta.info["features"])
-
-                # Calculate and save episode statistics
-                process_episode_stats(dataset, episode_index)
-
-        # After processing all episodes in the chunk, clean up SVO files and their parent folders
-        for episode_index in processed_episodes:
-            episode_dir = dataset.root / f"episode_{episode_index:06d}"
-            if episode_dir.exists():
-                logging.info(f"Removing episode directory: {episode_dir}")
-                shutil.rmtree(episode_dir)
+            # Check if directory is empty and delete if it is
+            if not any(parent_dir.iterdir()):
+                logging.info(f"Removing empty directory: {parent_dir}")
+                shutil.rmtree(parent_dir)
 
     logging.info("Conversion complete!")
 

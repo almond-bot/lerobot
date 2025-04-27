@@ -117,19 +117,19 @@ class IntelRealSenseCameraConfig(CameraConfig):
 @dataclass
 class ZedCameraConfig(CameraConfig):
     """
-    Example of tested options for Intel Real Sense D405:
+    Example of tested options for ZED:
 
     ```python
-    ZedCameraConfig(0, 30, 3840, 1080)
-    ZedCameraConfig(0, 60, 3840, 1080)
-    ZedCameraConfig(0, 90, 3840, 1080)
+    ZedCameraConfig(0, 30, 960, 600)
+    ZedCameraConfig(0, 60, 960, 600)
+    ZedCameraConfig(0, 90, 960, 600)
     ```
     """
 
     id: int
-    fps: int = 60
-    width: int = 960
-    height: int = 600
+    fps: int = 30
+    width: int = 1920
+    height: int = 1080
     codec: str = "h265"
     use_depth: bool = False
     mock: bool = False

@@ -157,19 +157,21 @@ class AlmondRobot:
     def camera_features(self) -> dict:
         cam_ft = {}
         for cam_key, cam in self.cameras.items():
-            cam_ft[f"observation.images.{cam_key}"] = {
-                "shape": (cam.height, cam.width, cam.channels),
-                "names": ["height", "width", "channels"],
-                "info": {
-                    "video.fps": cam.fps,
-                    "video.height": cam.height,
-                    "video.width": cam.width,
-                    "video.channels": cam.channels,
-                    "video.codec": cam.codec,
-                    "video.is_depth_map": cam.use_depth,
-                    "has_audio": False
-                },
-            }
+            views = ["left", "right"] if cam.use_depth else ["left", "right"]
+            for view in views:
+                cam_ft[f"observation.images.{cam_key}.{view}"] = {
+                    "shape": (cam.height, cam.width, cam.channels),
+                    "names": ["height", "width", "channels"],
+                    "info": {
+                        "video.fps": cam.fps,
+                        "video.height": cam.height,
+                        "video.width": cam.width,
+                        "video.channels": cam.channels,
+                        "video.codec": cam.codec,
+                        "video.is_depth_map": False,
+                        "has_audio": False
+                    },
+                }
         return cam_ft
 
     @property
