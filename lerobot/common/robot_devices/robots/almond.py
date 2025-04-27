@@ -341,7 +341,7 @@ class AlmondRobot:
 
         before_read_t = time.perf_counter()
         observation = self.get_observation_state()
-        action = self.get_action_state(values=arm_pos + [gripper_percent])
+        action = self.get_action_state(values=self.smoothed_positions + [gripper_percent])
         self.logs["read_pos_dt_s"] = time.perf_counter() - before_read_t
 
         self.last_arm_state = self.arm_state
