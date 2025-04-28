@@ -19,7 +19,7 @@ import asyncio
 from typing import Coroutine
 import time
 from dataclasses import replace
-from threading import Thread, Event
+from threading import Thread, Event, Lock
 
 import torch
 
@@ -47,7 +47,7 @@ def run_async_in_thread(coro: Coroutine):
 
 class AlmondRobot:
     ARM_IP = "192.168.57.2"
-    ARM_STATUS_RATE = 65 # Hz
+    ARM_STATUS_RATE = 30
     ARM_VELOCITY = 50
     ARM_ACCELERATION = 20
     SMOOTHING_FACTOR = 0.1
@@ -70,6 +70,8 @@ class AlmondRobot:
         self.arm_state: RobotStatePkg | None = None
         self.last_arm_state: RobotStatePkg | None = None
         self.arm_state_stop_event = Event()
+        self.cached_gripper_pos = 100  # Default to open position
+        self.gripper_lock = Lock()
 
         self.last_teleop_time = None
         self.is_first_teleop_step = True
@@ -153,6 +155,18 @@ class AlmondRobot:
             except Exception:
                 traceback.print_exc()
 
+    def _get_gripper_position(self):
+        while not self.arm_state_stop_event.is_set():
+            try:
+                with self.gripper_lock:
+                    pos = self.gripper.get_current_position()
+                if pos is not None:
+                    self.cached_gripper_pos = pos
+            except Exception:
+                traceback.print_exc()
+
+            time.sleep(1/AlmondRobot.ARM_STATUS_RATE)
+
     @property
     def camera_features(self) -> dict:
         cam_ft = {}
@@ -224,6 +238,10 @@ class AlmondRobot:
         get_arm_status_thread = Thread(target=run_async_in_thread, args=(self._get_arm_status(),))
         get_arm_status_thread.start()
 
+        # Start gripper position reading thread
+        get_gripper_pos_thread = Thread(target=self._get_gripper_position)
+        get_gripper_pos_thread.start()
+
         self.is_connected = True
 
         self.leader_arm.connect()
@@ -282,8 +300,7 @@ class AlmondRobot:
 
         values = [float(self.arm_state.jt_cur_pos[i]) if self.arm_state is not None else float(0) for i in range(6)]
         values.extend([float(self.arm_state.jt_cur_tor[i]) if self.arm_state is not None else float(0) for i in range(6)])
-        gripper_pos = self.gripper.get_current_position()
-        values.append(float(gripper_pos) if gripper_pos is not None else float(100))
+        values.append(float(self.cached_gripper_pos))
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
@@ -339,7 +356,8 @@ class AlmondRobot:
             if any(abs(g - c) > AlmondRobot.POSITION_DIFF_THRESHOLD for g, c in zip(self.smoothed_positions, cur_pos)):
                 self.arm.ServoJ(self.smoothed_positions, axisPos=[0]*6, cmdT=1/(self.teleop_fps or 20))
 
-        self.gripper.set_position(gripper_percent)
+        with self.gripper_lock:
+            self.gripper.set_position(gripper_percent)
 
         if not record_data:
             return
