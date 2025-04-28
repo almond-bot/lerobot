@@ -456,10 +456,6 @@ class AlmondRobot:
         self.leader_arm.write("Torque_Enable", 0)
         self.leader_arm.disconnect()
 
-        if self.gripper is not None:
-            self.gripper.CloseRPC()
-            self.gripper = None
-
         if len(self.cameras) > 0:
             for cam in self.cameras.values():
                 cam.disconnect()
