@@ -282,7 +282,8 @@ class AlmondRobot:
 
         values = [float(self.arm_state.jt_cur_pos[i]) if self.arm_state is not None else float(0) for i in range(6)]
         values.extend([float(self.arm_state.jt_cur_tor[i]) if self.arm_state is not None else float(0) for i in range(6)])
-        values.append(float(self.gripper.get_current_position()) if False else float(0))
+        gripper_pos = self.gripper.get_current_position()
+        values.append(float(gripper_pos) if gripper_pos is not None else float(100))
 
         return {keys[i]: values[i] for i in range(len(keys))}
 

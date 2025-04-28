@@ -53,7 +53,7 @@ class AGGripper:
     def save_parameters(self) -> bytes:
         return self._send_command(0x06, 0x0300, 0x01)
 
-    def read_register(self, register_address: int) -> int:
+    def read_register(self, register_address: int) -> int | None:
         frame = struct.pack('>B B H H', self.slave_id, 0x03, register_address, 1)
         crc = self._crc16(frame)
         self.port.write(frame + crc)
@@ -61,16 +61,17 @@ class AGGripper:
         if len(response) == 7:
             return struct.unpack('>H', response[3:5])[0]
         else:
-            raise IOError("No response or invalid response")
+            return None
 
-    def get_initialization_state(self) -> int:
+    def get_initialization_state(self) -> int | None:
         return self.read_register(0x0200)
 
-    def get_gripper_state(self) -> int:
+    def get_gripper_state(self) -> int | None:
         return self.read_register(0x0201)
 
-    def get_current_position(self) -> int:
-        return self.read_register(0x0202) / 10
+    def get_current_position(self) -> int | None:
+        pos = self.read_register(0x0202)
+        return pos / 10 if pos is not None else None
 
     def close(self):
         self.port.close()
