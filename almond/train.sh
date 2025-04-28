@@ -1,5 +1,10 @@
 TASK=$1
 
+if [ -z "$TASK" ]; then
+    echo "Error: Task not specified"
+    exit 1
+fi
+
 uv sync --extra "pi0"
 
 python lerobot/scripts/train.py \
