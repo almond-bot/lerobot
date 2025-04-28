@@ -9,7 +9,7 @@ uv run lerobot/scripts/control_robot.py \
     --control.fps=20 \
     --control.repo_id=shawnptl8/${TASK} \
     --control.warmup_time_s=15 \
-    --control.episode_time_s=60 \
+    --control.episode_time_s=30 \
     --control.reset_time_s=30 \
     --control.num_episodes=50 \
     --control.push_to_hub=false \

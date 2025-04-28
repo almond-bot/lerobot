@@ -286,10 +286,12 @@ class AlmondRobot:
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
-    def get_action_state(self, values: list[float], keys_only: bool = False) -> dict:
+    def get_action_state(self, values: list[float] = [], keys_only: bool = False) -> dict:
         keys = ["j1.pos", "j2.pos", "j3.pos", "j4.pos", "j5.pos", "j6.pos", "gripper.pos"]
         if keys_only:
             return keys
+        elif len(values) != len(keys):
+            raise ValueError(f"Expected {len(keys)} values, got {len(values)}")
 
         return {keys[i]: values[i] for i in range(len(keys))}
 
