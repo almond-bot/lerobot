@@ -1,6 +1,9 @@
 TASK=$1
 
-uv sync --extra "pi0"
+sudo apt update && sudo apt upgrade -y
+wget -qO- https://astral.sh/uv/install.sh | sh
+uv sync --extra "almond" --extra "pi0"
+sudo apt install zstd -y
 
 python lerobot/scripts/train.py \
   --dataset.repo_id=shawnptl8/${TASK} \

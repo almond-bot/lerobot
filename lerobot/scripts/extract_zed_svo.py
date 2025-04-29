@@ -163,7 +163,7 @@ def main():
     fps = dataset.meta.info["fps"]
 
     # Find all SVO files in the dataset directory
-    svo_files = list(dataset.root.glob("videos/chunk-*/observation.images.*/episode_*.svo2"))
+    svo_files = list(dataset.root.glob("videos/chunk-*/*/episode_*.svo2"))
     if not svo_files:
         raise RuntimeError("No SVO files found in dataset directory")
 
