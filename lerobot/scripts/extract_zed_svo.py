@@ -18,6 +18,7 @@ import argparse
 import logging
 import shutil
 from pathlib import Path
+import concurrent.futures
 
 import cv2
 import pyzed.sl as sl
@@ -169,6 +170,14 @@ def process_episode_stats(svo_path: Path, dataset: LeRobotDataset):
     write_episode_stats(episode_index, episode_stats, dataset.root)
 
 
+def process_svo_file(svo_path, dataset):
+    """Process a single SVO file and its statistics."""
+    extract_svo_frames(svo_path, dataset)
+    process_episode_stats(svo_path, dataset)
+    logging.info(f"Removing SVO file: {svo_path}")
+    svo_path.unlink()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert ZED SVO files to MP4 and calculate statistics.")
     parser.add_argument("--dataset_repo_id", type=str, required=True, help="Path to the LeRobotDataset directory")
@@ -178,7 +187,6 @@ def main():
 
     # Load the dataset
     dataset = LeRobotDataset(args.dataset_repo_id, verify=False)
-    fps = dataset.meta.info["fps"]
 
     # Find all SVO files in the dataset directory
     svo_files = list(dataset.root.glob("videos/chunk-*/*/episode_*.svo2"))
@@ -193,17 +201,23 @@ def main():
             svo_files_by_dir[parent_dir] = []
         svo_files_by_dir[parent_dir].append(svo_path)
 
-    # Process each directory's SVO files
+    # Process each directory's SVO files in parallel
     for parent_dir, svo_files in svo_files_by_dir.items():
         logging.info(f"Processing directory: {parent_dir}")
-        for svo_path in tqdm(svo_files, desc=f"Processing SVO files in {parent_dir.name}"):
-            # Process the SVO file directly
-            extract_svo_frames(svo_path, dataset)
-            process_episode_stats(svo_path, dataset)
 
-            # Delete the processed SVO file
-            logging.info(f"Removing SVO file: {svo_path}")
-            svo_path.unlink()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            # Submit all tasks
+            future_to_svo = {executor.submit(process_svo_file, svo_path, dataset): svo_path for svo_path in svo_files}
+            
+            # Process results as they complete
+            for future in tqdm(concurrent.futures.as_completed(future_to_svo), 
+                             total=len(svo_files),
+                             desc=f"Processing SVO files in {parent_dir.name}"):
+                try:
+                    future.result()
+                except Exception as e:
+                    logging.error(f"Error processing SVO file: {e}")
+                    continue
 
             # Check if directory is empty and delete if it is
             if not any(parent_dir.iterdir()):
