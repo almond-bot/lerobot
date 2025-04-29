@@ -4,6 +4,8 @@ sudo apt update && sudo apt upgrade -y
 wget -qO- https://astral.sh/uv/install.sh | sh
 uv sync --extra "almond" --extra "pi0"
 sudo apt install zstd -y
+wget -O ~/almond/zed_v5.run https://download.stereolabs.com/zedsdk/5.0/cu12/ubuntu22
+sudo chmod +x ~/almond/zed_v5.run
 
 python lerobot/scripts/train.py \
   --dataset.repo_id=shawnptl8/${TASK} \
