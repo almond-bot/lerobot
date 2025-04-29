@@ -140,7 +140,7 @@ def extract_svo_frames(svo_path: Path, dataset: LeRobotDataset):
 def process_episode_stats(svo_path: Path, dataset: LeRobotDataset):
     """Calculate and save statistics for a specific episode."""
     # Get the episode data from the dataset
-    episode_index = svo_path.stem.split("_")[1]
+    episode_index = int(svo_path.stem.split("_")[1])
     ep_start_idx = dataset.episode_data_index["from"][episode_index]
     ep_end_idx = dataset.episode_data_index["to"][episode_index]
     ep_data = dataset.hf_dataset.select(range(ep_start_idx, ep_end_idx))
