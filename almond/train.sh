@@ -12,8 +12,13 @@ sudo apt install zstd -y
 wget -O ~/almond/zed_v5.run https://download.stereolabs.com/zedsdk/5.0/cu12/ubuntu22
 sudo chmod +x ~/almond/zed_v5.run
 
-python lerobot/scripts/train.py \
-  --dataset.repo_id=shawnptl8/${TASK} \
+export HF_LEROBOT_HOME="~/almond/data"
+
+uv run lerobot/scripts/extract_zed_svo.py \
+  --data_repo_id=${TASK}
+
+uv run lerobot/scripts/train.py \
+  --dataset.repo_id=${TASK} \
   --policy.type=pi0 \
   --output_dir=outputs/train/pi0_${TASK} \
   --job_name=pi0_${TASK} \
