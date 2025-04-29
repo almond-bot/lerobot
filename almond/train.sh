@@ -12,10 +12,12 @@ sudo apt install zstd -y
 wget -O ~/almond/zed_v5.run https://download.stereolabs.com/zedsdk/5.0/cu12/ubuntu22
 sudo chmod +x ~/almond/zed_v5.run
 
+sudo apt install nvidia-driver-570
+
 export HF_LEROBOT_HOME="~/almond/data"
 
 uv run lerobot/scripts/extract_zed_svo.py \
-  --data_repo_id=${TASK}
+  --dataset_repo_id ${TASK}
 
 uv run lerobot/scripts/train.py \
   --dataset.repo_id=${TASK} \
