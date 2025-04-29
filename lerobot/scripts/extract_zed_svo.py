@@ -29,11 +29,15 @@ from lerobot.common.datasets.utils import write_episode_stats
 from lerobot.common.utils.utils import init_logging
 
 
-def extract_svo_frames(svo_path: Path, dataset_root: Path, fps: int, features: dict):
+def extract_svo_frames(svo_path: Path, dataset: LeRobotDataset):
     """Convert a ZED SVO file to MP4 format, saving left, right, and depth (if available) as separate files."""
     # Get camera name from SVO file
     episode_name = svo_path.stem
     camera_name = svo_path.parent.name
+    chunk_name = svo_path.parent.parent.name
+
+    fps = dataset.meta.info["fps"]
+    features = dataset.meta.info["features"]
 
     # Initialize ZED camera
     zed = sl.Camera()
@@ -72,15 +76,8 @@ def extract_svo_frames(svo_path: Path, dataset_root: Path, fps: int, features: d
     depth_writer = None
 
     # Create output directories
-    videos_dir = dataset_root / "videos"
-    images_dir = dataset_root / "images"
-    
-    # Find the highest existing chunk number
-    chunks = sorted([int(d.name.split("-")[1]) for d in videos_dir.glob("chunk-*") if d.is_dir()])
-    if not chunks:
-        raise RuntimeError("No chunk directories found in videos folder. Please create at least one chunk directory (e.g., chunk-000)")
-    videos_dir = videos_dir / f"chunk-{chunks[-1]:03d}"
-    images_dir = images_dir / f"chunk-{chunks[-1]:03d}"
+    videos_dir = dataset.root / "videos" / chunk_name
+    images_dir = dataset.root / "images" / chunk_name
 
     # Create video output paths
     if f"observation.images.{camera_name}.left" in features:
@@ -140,19 +137,29 @@ def extract_svo_frames(svo_path: Path, dataset_root: Path, fps: int, features: d
     zed.close()
 
 
-def process_episode_stats(dataset: LeRobotDataset, episode_index: int):
+def process_episode_stats(svo_path: Path, dataset: LeRobotDataset):
     """Calculate and save statistics for a specific episode."""
     # Get the episode data from the dataset
+    episode_index = svo_path.stem.split("_")[1]
     ep_start_idx = dataset.episode_data_index["from"][episode_index]
     ep_end_idx = dataset.episode_data_index["to"][episode_index]
     ep_data = dataset.hf_dataset.select(range(ep_start_idx, ep_end_idx))
+
+    chunk_name = svo_path.parent.parent.name
     
     # Create episode_data dictionary with the correct structure
     episode_data = {}
     for key, ft in dataset.features.items():
         if ft["dtype"] in ["image", "video"]:
             # For images and videos, we need to get the paths
-            episode_data[key] = [str(dataset.root / path) for path in ep_data[key]]
+            chunk_dir = dataset.root / "images" / chunk_name
+            episode_dir = chunk_dir / key / f"episode_{episode_index:06d}"
+            if not episode_dir.exists():
+                raise RuntimeError(f"Episode directory not found: {episode_dir}")
+
+            # Get all frame paths in order
+            frame_paths = sorted(episode_dir.glob("frame_*.png"))
+            episode_data[key] = [str(path) for path in frame_paths]
         else:
             # For other data types, we can use the numpy array directly
             episode_data[key] = np.array(ep_data[key])
@@ -190,12 +197,9 @@ def main():
     for parent_dir, svo_files in svo_files_by_dir.items():
         logging.info(f"Processing directory: {parent_dir}")
         for svo_path in tqdm(svo_files, desc=f"Processing SVO files in {parent_dir.name}"):
-            # Get episode number from the SVO filename
-            episode_num = svo_path.stem.split("_")[1]
-            
             # Process the SVO file directly
-            extract_svo_frames(svo_path, dataset.root, fps, dataset.meta.info["features"])
-            process_episode_stats(dataset, int(episode_num))
+            extract_svo_frames(svo_path, dataset)
+            process_episode_stats(svo_path, dataset)
 
             # Delete the processed SVO file
             logging.info(f"Removing SVO file: {svo_path}")
