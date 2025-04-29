@@ -53,9 +53,16 @@ def extract_svo_frames(svo_path: Path, dataset_root: Path, fps: int, features: d
 
     # Get video properties
     nb_frames = zed.get_svo_number_of_frames()
-    resolution = zed.get_camera_information().camera_resolution
-    width = resolution.width
-    height = resolution.height
+    
+    # Get dimensions for each feature
+    dimensions = {}
+    for view in ["left", "right", "depth"]:
+        feature_key = f"observation.images.{camera_name}.{view}"
+        if feature_key in features:
+            dimensions[view] = {
+                "width": features[feature_key]["info"]["video.width"],
+                "height": features[feature_key]["info"]["video.height"]
+            }
 
     # Initialize video writers
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -77,15 +84,15 @@ def extract_svo_frames(svo_path: Path, dataset_root: Path, fps: int, features: d
     if f"observation.images.{camera_name}.left" in features:
         left_video_dir = chunk_dir / f"observation.images.{camera_name}.left"
         left_video_dir.mkdir(parents=True, exist_ok=True)
-        left_writer = cv2.VideoWriter(str(left_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (width, height))
+        left_writer = cv2.VideoWriter(str(left_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (dimensions["left"]["width"], dimensions["left"]["height"]))
     if f"observation.images.{camera_name}.right" in features:
         right_video_dir = chunk_dir / f"observation.images.{camera_name}.right"
         right_video_dir.mkdir(parents=True, exist_ok=True)
-        right_writer = cv2.VideoWriter(str(right_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (width, height))
+        right_writer = cv2.VideoWriter(str(right_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (dimensions["right"]["width"], dimensions["right"]["height"]))
     if f"observation.images.{camera_name}.depth" in features:
         depth_video_dir = chunk_dir / f"observation.images.{camera_name}.depth"
         depth_video_dir.mkdir(parents=True, exist_ok=True)
-        depth_writer = cv2.VideoWriter(str(depth_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (width, height))
+        depth_writer = cv2.VideoWriter(str(depth_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (dimensions["depth"]["width"], dimensions["depth"]["height"]))
 
     # Create image output paths
     if f"observation.images.{camera_name}.left" in features:
