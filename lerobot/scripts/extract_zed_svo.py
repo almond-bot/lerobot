@@ -32,7 +32,8 @@ from lerobot.common.utils.utils import init_logging
 def extract_svo_frames(svo_path: Path, dataset_root: Path, fps: int, features: dict):
     """Convert a ZED SVO file to MP4 format, saving left, right, and depth (if available) as separate files."""
     # Get camera name from SVO file
-    camera_name = svo_path.stem
+    episode_name = svo_path.stem
+    camera_name = svo_path.parent.name
 
     # Initialize ZED camera
     zed = sl.Camera()
@@ -78,31 +79,32 @@ def extract_svo_frames(svo_path: Path, dataset_root: Path, fps: int, features: d
     chunks = sorted([int(d.name.split("-")[1]) for d in videos_dir.glob("chunk-*") if d.is_dir()])
     if not chunks:
         raise RuntimeError("No chunk directories found in videos folder. Please create at least one chunk directory (e.g., chunk-000)")
-    chunk_dir = videos_dir / f"chunk-{chunks[-1]:03d}"
+    videos_dir = videos_dir / f"chunk-{chunks[-1]:03d}"
+    images_dir = images_dir / f"chunk-{chunks[-1]:03d}"
 
     # Create video output paths
     if f"observation.images.{camera_name}.left" in features:
-        left_video_dir = chunk_dir / f"observation.images.{camera_name}.left"
+        left_video_dir = videos_dir / f"observation.images.{camera_name}.left"
         left_video_dir.mkdir(parents=True, exist_ok=True)
-        left_writer = cv2.VideoWriter(str(left_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (dimensions["left"]["width"], dimensions["left"]["height"]))
+        left_writer = cv2.VideoWriter(str(left_video_dir / f"{episode_name}.mp4"), fourcc, fps, (dimensions["left"]["width"], dimensions["left"]["height"]))
     if f"observation.images.{camera_name}.right" in features:
-        right_video_dir = chunk_dir / f"observation.images.{camera_name}.right"
+        right_video_dir = videos_dir / f"observation.images.{camera_name}.right"
         right_video_dir.mkdir(parents=True, exist_ok=True)
-        right_writer = cv2.VideoWriter(str(right_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (dimensions["right"]["width"], dimensions["right"]["height"]))
+        right_writer = cv2.VideoWriter(str(right_video_dir / f"{episode_name}.mp4"), fourcc, fps, (dimensions["right"]["width"], dimensions["right"]["height"]))
     if f"observation.images.{camera_name}.depth" in features:
-        depth_video_dir = chunk_dir / f"observation.images.{camera_name}.depth"
+        depth_video_dir = videos_dir / f"observation.images.{camera_name}.depth"
         depth_video_dir.mkdir(parents=True, exist_ok=True)
-        depth_writer = cv2.VideoWriter(str(depth_video_dir / f"episode_{svo_path.parent.name.split('_')[1]}.mp4"), fourcc, fps, (dimensions["depth"]["width"], dimensions["depth"]["height"]))
+        depth_writer = cv2.VideoWriter(str(depth_video_dir / f"{episode_name}.mp4"), fourcc, fps, (dimensions["depth"]["width"], dimensions["depth"]["height"]))
 
     # Create image output paths
     if f"observation.images.{camera_name}.left" in features:
-        left_image_dir = images_dir / f"observation.images.{camera_name}.left" / svo_path.parent.name
+        left_image_dir = images_dir / f"observation.images.{camera_name}.left" / episode_name
         left_image_dir.mkdir(parents=True, exist_ok=True)
     if f"observation.images.{camera_name}.right" in features:
-        right_image_dir = images_dir / f"observation.images.{camera_name}.right" / svo_path.parent.name
+        right_image_dir = images_dir / f"observation.images.{camera_name}.right" / episode_name
         right_image_dir.mkdir(parents=True, exist_ok=True)
     if f"observation.images.{camera_name}.depth" in features:
-        depth_image_dir = images_dir / f"observation.images.{camera_name}.depth" / svo_path.parent.name
+        depth_image_dir = images_dir / f"observation.images.{camera_name}.depth" / episode_name
         depth_image_dir.mkdir(parents=True, exist_ok=True)
 
     # Process frames
