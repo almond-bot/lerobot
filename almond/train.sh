@@ -16,6 +16,8 @@ sudo apt install nvidia-driver-570
 
 export HF_LEROBOT_HOME="~/almond/data"
 
+touch data/${TASK}/episodes_stats.jsonl
+
 uv run lerobot/scripts/extract_zed_svo.py \
   --dataset_repo_id ${TASK}
 

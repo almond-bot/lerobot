@@ -171,7 +171,7 @@ class AlmondRobot:
     def camera_features(self) -> dict:
         cam_ft = {}
         for cam_key, cam in self.cameras.items():
-            views = ["left", "right"] if cam.use_depth else ["left", "right"]
+            views = ["left", "right", "depth"] if cam.use_depth else ["left", "right"]
             for view in views:
                 cam_ft[f"observation.images.{cam_key}.{view}"] = {
                     "shape": (cam.height, cam.width, cam.channels),

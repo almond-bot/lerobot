@@ -39,7 +39,9 @@ def extract_svo_frames(svo_path: Path, dataset_root: Path, fps: int, features: d
     init_params = sl.InitParameters()
     init_params.set_from_svo_file(str(svo_path))
     if f"observation.images.{camera_name}.depth" in features:
-        init_params.depth_mode = sl.DEPTH_MODE.NEURAL
+        init_params.depth_mode = sl.DEPTH_MODE.ULTRA
+    else:
+        init_params.depth_mode = sl.DEPTH_MODE.NONE
     err = zed.open(init_params)
     if err != sl.ERROR_CODE.SUCCESS:
         raise RuntimeError(f"Failed to open SVO file: {svo_path}")
@@ -159,7 +161,7 @@ def main():
     init_logging()
 
     # Load the dataset
-    dataset = LeRobotDataset(args.dataset_repo_id)
+    dataset = LeRobotDataset(args.dataset_repo_id, verify=False)
     fps = dataset.meta.info["fps"]
 
     # Find all SVO files in the dataset directory
