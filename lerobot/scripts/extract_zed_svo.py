@@ -18,6 +18,7 @@ import argparse
 import logging
 import shutil
 from pathlib import Path
+import json
 import concurrent.futures
 
 import cv2
@@ -188,41 +189,51 @@ def main():
     # Load the dataset
     dataset = LeRobotDataset(args.dataset_repo_id, verify=False)
 
-    # Find all SVO files in the dataset directory
-    svo_files = list(dataset.root.glob("videos/chunk-*/*/episode_*.svo2"))
-    if not svo_files:
-        raise RuntimeError("No SVO files found in dataset directory")
+    # # Find all SVO files in the dataset directory
+    # svo_files = list(dataset.root.glob("videos/chunk-*/*/episode_*.svo2"))
+    # if not svo_files:
+    #     raise RuntimeError("No SVO files found in dataset directory")
 
-    # Group SVO files by their parent directory
-    svo_files_by_dir = {}
-    for svo_path in svo_files:
-        parent_dir = svo_path.parent
-        if parent_dir not in svo_files_by_dir:
-            svo_files_by_dir[parent_dir] = []
-        svo_files_by_dir[parent_dir].append(svo_path)
+    # # Group SVO files by their parent directory
+    # svo_files_by_dir = {}
+    # for svo_path in svo_files:
+    #     parent_dir = svo_path.parent
+    #     if parent_dir not in svo_files_by_dir:
+    #         svo_files_by_dir[parent_dir] = []
+    #     svo_files_by_dir[parent_dir].append(svo_path)
 
-    # Process each directory's SVO files in parallel
-    for parent_dir, svo_files in svo_files_by_dir.items():
-        logging.info(f"Processing directory: {parent_dir}")
+    # # Process each directory's SVO files in parallel
+    # for parent_dir, svo_files in svo_files_by_dir.items():
+    #     logging.info(f"Processing directory: {parent_dir}")
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            # Submit all tasks
-            future_to_svo = {executor.submit(process_svo_file, svo_path, dataset): svo_path for svo_path in svo_files}
+    #     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    #         # Submit all tasks
+    #         future_to_svo = {executor.submit(process_svo_file, svo_path, dataset): svo_path for svo_path in svo_files}
             
-            # Process results as they complete
-            for future in tqdm(concurrent.futures.as_completed(future_to_svo), 
-                             total=len(svo_files),
-                             desc=f"Processing SVO files in {parent_dir.name}"):
-                try:
-                    future.result()
-                except Exception as e:
-                    logging.error(f"Error processing SVO file: {e}")
-                    continue
+    #         # Process results as they complete
+    #         for future in tqdm(concurrent.futures.as_completed(future_to_svo), 
+    #                          total=len(svo_files),
+    #                          desc=f"Processing SVO files in {parent_dir.name}"):
+    #             try:
+    #                 future.result()
+    #             except Exception as e:
+    #                 logging.error(f"Error processing SVO file: {e}")
+    #                 continue
 
-            # Check if directory is empty and delete if it is
-            if not any(parent_dir.iterdir()):
-                logging.info(f"Removing empty directory: {parent_dir}")
-                shutil.rmtree(parent_dir)
+    #         # Check if directory is empty and delete if it is
+    #         if not any(parent_dir.iterdir()):
+    #             logging.info(f"Removing empty directory: {parent_dir}")
+    #             shutil.rmtree(parent_dir)
+
+    # Sort episodes_stats.jsonl by episode_index
+    stats_path = dataset.root / "meta" / "episodes_stats.jsonl"
+    if stats_path.exists():
+        with open(stats_path, "r") as f:
+            stats = [json.loads(line) for line in f]
+        stats.sort(key=lambda x: x["episode_index"])
+        with open(stats_path, "w") as f:
+            for stat in stats:
+                f.write(json.dumps(stat) + "\n")
 
     logging.info("Conversion complete!")
 
