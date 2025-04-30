@@ -22,6 +22,7 @@ from lerobot.common.robot_devices.cameras.configs import (
     CameraConfig,
     IntelRealSenseCameraConfig,
     OpenCVCameraConfig,
+    ZedCameraConfig,
 )
 from lerobot.common.robot_devices.motors.configs import (
     DynamixelMotorsBusConfig,
@@ -611,3 +612,41 @@ class LeKiwiRobotConfig(RobotConfig):
     )
 
     mock: bool = False
+
+
+@RobotConfig.register_subclass("almond")
+@dataclass
+class AlmondRobotConfig(RobotConfig):
+    # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
+    # Set this to a positive scalar to have the same value for all motors, or a list that is the same length as
+    # the number of motors in your follower arms.
+    max_relative_target: int | None = None
+
+    leader_arms: dict[str, MotorsBusConfig] = field(
+        default_factory=lambda: {
+            "main": DynamixelMotorsBusConfig(
+                port="/dev/ttyACM0",
+                motors={
+                    "j1": [0, "xl430-w250"],
+                    "j2": [1, "xl430-w250"],
+                    "j3": [2, "xl330-m288"],
+                    "j4": [3, "xl330-m288"],
+                    "j5": [4, "xl330-m288"],
+                    "j6": [5, "xl330-m288"],
+                    "gripper": [6, "xl330-m077"],
+                },
+            ),
+        }
+    )
+
+    cameras: dict[str, CameraConfig] = field(
+        default_factory=lambda: {
+            "arm": ZedCameraConfig(
+                id=0,
+                fps=30,
+                width=1920,
+                height=1080,
+                use_depth=True,
+            ),
+        }
+    )

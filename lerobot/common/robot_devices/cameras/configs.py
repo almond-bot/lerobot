@@ -112,3 +112,24 @@ class IntelRealSenseCameraConfig(CameraConfig):
 
         if self.rotation not in [-90, None, 90, 180]:
             raise ValueError(f"`rotation` must be in [-90, None, 90, 180] (got {self.rotation})")
+
+@CameraConfig.register_subclass("zed")
+@dataclass
+class ZedCameraConfig(CameraConfig):
+    """
+    Example of tested options for ZED:
+
+    ```python
+    ZedCameraConfig(0, 30, 960, 600)
+    ZedCameraConfig(0, 60, 960, 600)
+    ZedCameraConfig(0, 90, 960, 600)
+    ```
+    """
+
+    id: int
+    fps: int = 30
+    width: int = 1920
+    height: int = 1080
+    codec: str = "h265"
+    use_depth: bool = False
+    mock: bool = False
