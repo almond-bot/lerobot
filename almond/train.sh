@@ -6,7 +6,7 @@ git config --global user.name "Almond Lambda"
 sudo apt update && sudo apt upgrade -y
 wget -qO- https://astral.sh/uv/install.sh | sh
 
-uv sync --extra "almond" --extra "pi0"
+uv sync --extra "almond" --extra "pi0" --extra "test"
 
 sudo apt install zstd -y
 wget -O ~/almond/zed_v5.run https://download.stereolabs.com/zedsdk/5.0/cu12/ubuntu22
@@ -27,4 +27,5 @@ uv run lerobot/scripts/train.py \
   --output_dir=outputs/train/pi0_${TASK} \
   --job_name=pi0_${TASK} \
   --policy.device=cuda \
+  --batch_size=2 \
   --wandb.enable=false
