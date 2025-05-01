@@ -442,14 +442,7 @@ class AlmondRobot:
             self.teleop_fps = 1.0 / (current_time - self.last_teleop_time)
         self.last_teleop_time = current_time
 
-        # Only run initialization sequence on first teleop step
-        if self.is_first_teleop_step:
-            self.arm.ServoMoveEnd()
-            self.arm.MoveJ(arm_pos, 0, 0, vel=AlmondRobot.ARM_VELOCITY, acc=AlmondRobot.ARM_ACCELERATION)
-            self.arm.ServoMoveStart()
-            self.is_first_teleop_step = False
-        else:
-            self.arm.ServoJ(arm_pos, axisPos=[0]*6, cmdT=1/(self.teleop_fps or 20))
+        self.arm.ServoJ(arm_pos, axisPos=[0]*6, cmdT=1/(self.teleop_fps or 20))
 
         gripper_percent = max(0, min(100, gripper_pos))
         with self.gripper_lock:
