@@ -10,6 +10,7 @@ rm -fr ~/.cache/huggingface/lerobot/shawnptl8/eval_pi0_${TASK}
 uv run lerobot/scripts/control_robot.py \
     --robot.type=almond \
     --control.type=record \
+    --control.single_task="${TASK}" \
     --control.fps=20 \
     --control.repo_id=shawnptl8/eval_pi0_${TASK} \
     --control.warmup_time_s=15 \
