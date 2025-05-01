@@ -1,5 +1,10 @@
 TASK=$1
 
+if [ -z "$TASK" ]; then
+    echo "Error: Task not specified"
+    exit 1
+fi
+
 rm -fr ~/.cache/huggingface/lerobot/shawnptl8/${TASK}
 
 uv run lerobot/scripts/control_robot.py \
