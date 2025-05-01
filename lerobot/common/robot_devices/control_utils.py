@@ -243,6 +243,9 @@ def control_loop(
     if dataset is not None and fps is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset['fps']} != {fps}).")
 
+    if teleoperate and isinstance(robot, AlmondRobot):
+        robot.setup_teleop()
+
     timestamp = 0
     start_episode_t = time.perf_counter()
     while timestamp < control_time_s:

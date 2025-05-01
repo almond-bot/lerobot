@@ -244,9 +244,6 @@ class AlmondRobot:
 
         self.is_connected = True
 
-        self.leader_arm.connect()
-        self.leader_arm.write("Torque_Enable", 0)
-
         for name in self.cameras:
             self.cameras[name].connect()
             self.is_connected = self.is_connected and self.cameras[name].is_connected
@@ -255,13 +252,17 @@ class AlmondRobot:
             print("Could not connect to the cameras, check that all cameras are plugged-in.")
             raise ConnectionError()
 
-        self.set_preset()
-
         self.run_calibration()
         self.arm.ServoMoveStart()
 
         while self.arm_state is None:
             time.sleep(0.25)
+
+    def setup_teleop(self) -> None:
+        self.leader_arm.connect()
+        self.leader_arm.write("Torque_Enable", 0)
+
+        self.set_preset()
 
     def run_calibration(self) -> None:
         self.arm.ServoMoveEnd()
@@ -468,8 +469,9 @@ class AlmondRobot:
         self.arm.CloseRPC()
         self.arm = None
 
-        self.leader_arm.write("Torque_Enable", 0)
-        self.leader_arm.disconnect()
+        if self.leader_arm.is_connected:
+            self.leader_arm.write("Torque_Enable", 0)
+            self.leader_arm.disconnect()
 
         if len(self.cameras) > 0:
             for cam in self.cameras.values():
