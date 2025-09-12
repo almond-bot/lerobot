@@ -12,13 +12,13 @@ def main():
     }
 
     follower_config = SO101FollowerConfig(port=FOLLOWER_PORT, cameras=camera_config)
-
     leader_config = SO101LeaderConfig(
         port=LEADER_PORT,
     )
 
     follower = SO101Follower(follower_config)
     leader = SO101Leader(leader_config)
+
     follower.connect()
     leader.connect()
 
