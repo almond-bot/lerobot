@@ -168,6 +168,17 @@ lerobot-teleoperate="lerobot.teleoperate:main"
 lerobot-eval="lerobot.scripts.eval:main"
 lerobot-train="lerobot.scripts.train:main"
 
+# uv configuration
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+torchcodec = { index = "pytorch" }
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 # ---------------- Tool Configurations ----------------
 [tool.setuptools.packages.find]
 where = ["src"]
