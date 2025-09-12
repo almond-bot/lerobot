@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 # Build uv sync command with extras based on arguments
