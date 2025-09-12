@@ -1,1 +1,1 @@
-uv sync --extra feetech
+uv sync --extra feetech --extra almond
