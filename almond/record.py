@@ -20,6 +20,7 @@ EPISODE_COUNTDOWN_SECONDS = 3
 parser = argparse.ArgumentParser()
 parser.add_argument("--name", type=str, required=True, help="The name of the task")
 parser.add_argument("--description", type=str, required=True, help="The description of the task")
+parser.add_argument("--extend", action="store_true", help="Extend the dataset with more episodes")
 args = parser.parse_args()
 
 camera_config = {
@@ -42,15 +43,21 @@ action_features = hw_to_dataset_features(follower.action_features, "action")
 obs_features = hw_to_dataset_features(follower.observation_features, "observation")
 dataset_features = {**action_features, **obs_features}
 
-# Create the dataset
-dataset = LeRobotDataset.create(
-    repo_id=f"{HF_USER}/{args.name}",
-    fps=FPS,
-    features=dataset_features,
-    robot_type=follower.name,
-    use_videos=True,
-    image_writer_threads=4,
-)
+# Create the dataset or load existing dataset
+if args.extend:
+    dataset = LeRobotDataset(
+        repo_id=f"{HF_USER}/{args.name}",
+    )
+    dataset.start_image_writer()
+else:
+    dataset = LeRobotDataset.create(
+        repo_id=f"{HF_USER}/{args.name}",
+        fps=FPS,
+        features=dataset_features,
+        robot_type=follower.name,
+        use_videos=True,
+        image_writer_threads=4,
+    )
 
 # Connect the leader and follower
 follower.connect()
