@@ -1,19 +1,22 @@
 import argparse
 
-from lerobot.teleoperators.so101_leader import SO101Leader, SO101LeaderConfig
-from lerobot.robots.so101_follower import SO101Follower, SO101FollowerConfig
+from env import FOLLOWER_PORT, LEADER_PORT
 
-from env import LEADER_PORT, FOLLOWER_PORT
+from lerobot.robots.so101_follower import SO101Follower, SO101FollowerConfig
+from lerobot.teleoperators.so101_leader import SO101Leader, SO101LeaderConfig
+
 
 def calibrate_leader():
     config = SO101LeaderConfig(port=LEADER_PORT)
     leader = SO101Leader(config)
     leader.setup_motors()
 
+
 def calibrate_follower():
     config = SO101FollowerConfig(port=FOLLOWER_PORT)
     follower = SO101Follower(config)
     follower.setup_motors()
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -26,6 +29,7 @@ def main():
         calibrate_leader()
     if args.follower:
         calibrate_follower()
+
 
 if __name__ == "__main__":
     main()
