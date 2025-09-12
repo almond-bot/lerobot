@@ -93,6 +93,7 @@ while not events["stop_recording"]:
         time.sleep(1 / FPS)
     events["record_episode"] = False
 
+    # Countdown to the start of the episode
     for i in range(EPISODE_COUNTDOWN_SECONDS):
         print("Starting in", EPISODE_COUNTDOWN_SECONDS - i)
         time.sleep(1)
