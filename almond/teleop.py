@@ -1,9 +1,12 @@
 import argparse
 
 import rerun
+import cv2
+
 from env import FOLLOWER_CAM_PORT, FOLLOWER_PORT, LEADER_PORT, OVERHEAD_CAM_PORT
 
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
 from lerobot.robots.so101_follower import SO101Follower, SO101FollowerConfig
 from lerobot.teleoperators.so101_leader import SO101Leader, SO101LeaderConfig
 from lerobot.utils.visualization_utils import _init_rerun, log_rerun_data
@@ -30,6 +33,10 @@ leader = SO101Leader(leader_config)
 
 follower.connect()
 leader.connect()
+
+opencv_cams = [cam for cam in follower.cameras.values() if isinstance(cam, OpenCVCamera)]
+for cam in opencv_cams:
+    cam.videocapture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "2"))
 
 try:
     while True:

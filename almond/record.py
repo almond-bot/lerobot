@@ -2,9 +2,12 @@ import argparse
 import threading
 import time
 
+import cv2
+
 from env import FOLLOWER_CAM_PORT, FOLLOWER_PORT, HF_USER, LEADER_PORT, OVERHEAD_CAM_PORT
 
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import hw_to_dataset_features
 from lerobot.record import record_loop
@@ -62,6 +65,10 @@ else:
 # Connect the leader and follower
 follower.connect()
 leader.connect()
+
+opencv_cams = [cam for cam in follower.cameras.values() if isinstance(cam, OpenCVCamera)]
+for cam in opencv_cams:
+    cam.videocapture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "2"))
 
 # Initialize the events and command loop
 events = {
