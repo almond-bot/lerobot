@@ -3,11 +3,10 @@ import threading
 import time
 
 import cv2
-
 from env import FOLLOWER_CAM_PORT, FOLLOWER_PORT, HF_USER, LEADER_PORT, OVERHEAD_CAM_PORT
 
-from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
+from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import hw_to_dataset_features
 from lerobot.record import record_loop
