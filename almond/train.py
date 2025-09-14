@@ -29,6 +29,11 @@ def train_cmd(name: str, policy: str, steps: int, scratch: bool) -> list[str]:
             cmd.append("--policy.type=pi0")
         else:
             cmd.append("--policy.path=lerobot/pi0")
+    elif policy == "pi0fast":
+        if scratch:
+            cmd.append("--policy.type=pi0fast")
+        else:
+            cmd.append("--policy.path=lerobot/pi0fast_base")
 
     return cmd
 
