@@ -362,7 +362,29 @@ class PI0Policy(PreTrainedPolicy):
     @torch.no_grad()
     def predict_action_chunk(self, batch: dict[str, Tensor]) -> Tensor:
         """Predict a chunk of actions given environment observations."""
-        raise NotImplementedError("Currently not implemented for PI0")
+        self.eval()
+
+        if self.config.adapt_to_pi_aloha:
+            batch[OBS_STATE] = self._pi_aloha_decode_state(batch[OBS_STATE])
+
+        batch = self.normalize_inputs(batch)
+
+        images, img_masks = self.prepare_images(batch)
+        state = self.prepare_state(batch)
+        lang_tokens, lang_masks = self.prepare_language(batch)
+
+        actions = self.model.sample_actions(images, img_masks, lang_tokens, lang_masks, state, noise=None)
+
+        # Unpad actions
+        original_action_dim = self.config.action_feature.shape[0]
+        actions = actions[:, :, :original_action_dim]
+
+        actions = self.unnormalize_outputs({"action": actions})["action"]
+
+        if self.config.adapt_to_pi_aloha:
+            actions = self._pi_aloha_encode_actions(actions)
+
+        return actions
 
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor], noise: Tensor | None = None) -> Tensor:
