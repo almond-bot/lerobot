@@ -2,8 +2,8 @@
 
 # Build uv sync command with extras based on arguments
 EXTRAS="--extra almond"
-[[ "$*" == *"--inference"* ]] && EXTRAS="$EXTRAS --extra feetech"
-[[ "$*" == *"--train"* ]] && EXTRAS="$EXTRAS --extra pi0"
+[[ "$*" == *"--inference"* ]] && EXTRAS="$EXTRAS --extra feetech --extra async"
+[[ "$*" == *"--train"* ]] && EXTRAS="$EXTRAS --extra smolvla --extra pi0"
 
 uv sync $EXTRAS
 
