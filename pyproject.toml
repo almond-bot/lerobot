@@ -137,7 +137,7 @@ pusht = ["gym-pusht>=0.1.5", "pymunk>=6.6.0,<7.0.0"] # TODO: Fix pymunk version 
 xarm = ["gym-xarm>=0.1.1"]
 
 # Almond
-almond = ["python-dotenv>=1.0.1"]
+almond = ["python-dotenv>=1.0.1", "requests>=2.32.5", "logtail-python>=0.3.3"]
 
 # All
 all = [
