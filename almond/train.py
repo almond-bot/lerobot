@@ -9,7 +9,14 @@ import requests
 import utils
 from env import HF_USER, SLACK_ENG_OPERATIONS_URL
 
+from lerobot.policies.act.modeling_act import ACTPolicy
+from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+from lerobot.policies.pi0fast.modeling_pi0fast import PI0FASTPolicy
+from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+
 logger = utils.create_logger(__name__)
+
+BATCH_SIZE = 256
 
 # Message templates
 SUCCESS_MESSAGE_TEMPLATE = """🎉 Training Completed Successfully!
@@ -120,28 +127,28 @@ class TrainingRunner:
             f"--job_name={policy}_{name}",
             f"--output_dir=outputs/train/{policy}_{name}",
             "--policy.device=cuda",
-            "--batch_size=256",
+            f"--batch_size={BATCH_SIZE}",
             f"--steps={steps}",
             "--wandb.enable=false",
         ]
 
-        if policy == "act":
-            cmd.append("--policy.type=act")
-        elif policy == "smolvla":
+        if policy == ACTPolicy.name:
+            cmd.append(f"--policy.type={ACTPolicy.name}")
+        elif policy == SmolVLAPolicy.name:
             if scratch:
-                cmd.append("--policy.type=smolvla")
+                cmd.append(f"--policy.type={SmolVLAPolicy.name}")
             else:
-                cmd.append("--policy.path=lerobot/smolvla_base")
-        elif policy == "pi0":
+                cmd.append(f"--policy.path=lerobot/{SmolVLAPolicy.name}_base")
+        elif policy == PI0Policy.name:
             if scratch:
-                cmd.append("--policy.type=pi0")
+                cmd.append(f"--policy.type={PI0Policy.name}")
             else:
-                cmd.append("--policy.path=lerobot/pi0")
-        elif policy == "pi0fast":
+                cmd.append(f"--policy.path=lerobot/{PI0Policy.name}")
+        elif policy == PI0FASTPolicy.name:
             if scratch:
-                cmd.append("--policy.type=pi0fast")
+                cmd.append(f"--policy.type={PI0FASTPolicy.name}")
             else:
-                cmd.append("--policy.path=lerobot/pi0fast_base")
+                cmd.append(f"--policy.path=lerobot/{PI0FASTPolicy.name}_base")
 
         return cmd
 

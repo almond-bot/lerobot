@@ -113,13 +113,13 @@ cmd_thread.start()
 # Initialize the policy
 if args.policy is not None:
     policy_type = args.policy.split("/")[-1].split("_")[0]
-    if policy_type == "act":
+    if policy_type == ACTPolicy.name:
         policy = ACTPolicy.from_pretrained(args.policy)
-    elif policy_type == "pi0":
+    elif policy_type == PI0Policy.name:
         policy = PI0Policy.from_pretrained(args.policy)
-    elif policy_type == "pi0fast":
+    elif policy_type == PI0FASTPolicy.name:
         policy = PI0FASTPolicy.from_pretrained(args.policy)
-    elif policy_type == "smolvla":
+    elif policy_type == SmolVLAPolicy.name:
         policy = SmolVLAPolicy.from_pretrained(args.policy)
     else:
         raise ValueError(f"Invalid policy: {args.policy}")
