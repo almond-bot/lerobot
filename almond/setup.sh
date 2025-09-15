@@ -1,11 +1,6 @@
 #!/bin/bash
 
-# Build uv sync command with extras based on arguments
-EXTRAS="--extra almond"
-[[ "$*" == *"--inference"* ]] && EXTRAS="$EXTRAS --extra feetech --extra async"
-[[ "$*" == *"--train"* ]] && EXTRAS="$EXTRAS --extra smolvla --extra pi0"
-
-uv sync $EXTRAS
+uv sync --extra almond,feetech,async,smolvla,pi0
 
 uv tool install pre-commit
 pre-commit install
