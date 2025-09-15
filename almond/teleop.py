@@ -11,7 +11,9 @@ from lerobot.teleoperators.so101_leader import SO101Leader, SO101LeaderConfig
 from lerobot.utils.visualization_utils import _init_rerun, log_rerun_data
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--visualize", action="store_true", help="Visualize joint positions and camera feeds")
+parser.add_argument(
+    "--visualize", action="store_true", required=False, help="Visualize joint positions and camera feeds"
+)
 args = parser.parse_args()
 
 if args.visualize:

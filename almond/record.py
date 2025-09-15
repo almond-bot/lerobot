@@ -3,7 +3,16 @@ import threading
 import time
 
 import cv2
-from env import FOLLOWER_CAM_PORT, FOLLOWER_PORT, HF_USER, LEADER_PORT, OVERHEAD_CAM_PORT
+from env import (
+    CAMERA_HEIGHT,
+    CAMERA_WIDTH,
+    FOLLOWER_CAM_PORT,
+    FOLLOWER_PORT,
+    FPS,
+    HF_USER,
+    LEADER_PORT,
+    OVERHEAD_CAM_PORT,
+)
 
 from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
@@ -14,20 +23,19 @@ from lerobot.policies.pi0.modeling_pi0 import PI0Policy
 from lerobot.policies.pi0fast.modeling_pi0fast import PI0FASTPolicy
 from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.record import record_loop
-from lerobot.robots.so100_follower import SO100Follower, SO100FollowerConfig
-from lerobot.teleoperators.so100_leader.config_so100_leader import SO100LeaderConfig
-from lerobot.teleoperators.so100_leader.so100_leader import SO100Leader
+from lerobot.robots.so101_follower import SO101Follower, SO101FollowerConfig
+from lerobot.teleoperators.so101_leader.config_so101_leader import SO101LeaderConfig
+from lerobot.teleoperators.so101_leader.so101_leader import SO101Leader
 
-FPS = 30
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
 EPISODE_COUNTDOWN_SECONDS = 3
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--name", type=str, required=True, help="The name of the task")
 parser.add_argument("--description", type=str, required=True, help="The description of the task")
-parser.add_argument("--extend", action="store_true", help="Extend the dataset with more episodes")
-parser.add_argument("--policy", type=str, default=None, help="The path to the policy")
+parser.add_argument(
+    "--extend", action="store_true", required=False, help="Extend the dataset with more episodes"
+)
+parser.add_argument("--policy", type=str, required=False, default=None, help="The path to the policy")
 args = parser.parse_args()
 
 camera_config = {
@@ -38,12 +46,12 @@ camera_config = {
         index_or_path=FOLLOWER_CAM_PORT, width=CAMERA_WIDTH, height=CAMERA_HEIGHT, fps=FPS
     ),
 }
-follower_config = SO100FollowerConfig(port=FOLLOWER_PORT, cameras=camera_config)
-leader_config = SO100LeaderConfig(port=LEADER_PORT) if args.policy is None else None
+follower_config = SO101FollowerConfig(port=FOLLOWER_PORT, cameras=camera_config)
+leader_config = SO101LeaderConfig(port=LEADER_PORT) if args.policy is None else None
 
 # Initialize the leader and follower
-follower = SO100Follower(follower_config)
-leader = SO100Leader(leader_config) if args.policy is None else None
+follower = SO101Follower(follower_config)
+leader = SO101Leader(leader_config) if args.policy is None else None
 
 # Configure the dataset features
 action_features = hw_to_dataset_features(follower.action_features, "action")
@@ -104,13 +112,14 @@ cmd_thread.start()
 
 # Initialize the policy
 if args.policy is not None:
-    if args.policy.startswith("act"):
+    policy_type = args.policy.split("/")[-1].split("_")[0]
+    if policy_type == "act":
         policy = ACTPolicy.from_pretrained(args.policy)
-    elif args.policy.startswith("pi0"):
+    elif policy_type == "pi0":
         policy = PI0Policy.from_pretrained(args.policy)
-    elif args.policy.startswith("pi0fast"):
+    elif policy_type == "pi0fast":
         policy = PI0FASTPolicy.from_pretrained(args.policy)
-    elif args.policy.startswith("smolvla"):
+    elif policy_type == "smolvla":
         policy = SmolVLAPolicy.from_pretrained(args.policy)
     else:
         raise ValueError(f"Invalid policy: {args.policy}")

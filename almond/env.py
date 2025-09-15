@@ -7,6 +7,10 @@ DIR_NAME = os.path.dirname(__file__)
 load_dotenv(f"{DIR_NAME}/.env")
 load_dotenv(f"{DIR_NAME}/.env.local", override=True)
 
+FPS = int(os.environ["FPS"])
+CAMERA_WIDTH = int(os.environ["CAMERA_WIDTH"])
+CAMERA_HEIGHT = int(os.environ["CAMERA_HEIGHT"])
+
 HF_USER = os.environ["HF_USER"]
 
 LOGTAIL_HOST = os.environ["LOGTAIL_HOST"]

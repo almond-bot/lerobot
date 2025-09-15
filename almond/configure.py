@@ -22,8 +22,8 @@ def configure_follower():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--leader", action="store_true", help="Configure the leader arm")
-    parser.add_argument("--follower", action="store_true", help="Configure the follower arm")
+    parser.add_argument("--leader", action="store_true", required=False, help="Configure the leader arm")
+    parser.add_argument("--follower", action="store_true", required=False, help="Configure the follower arm")
 
     args = parser.parse_args()
 

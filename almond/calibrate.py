@@ -26,8 +26,8 @@ def calibrate_follower():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--leader", action="store_true", help="Calibrate the leader arm")
-    parser.add_argument("--follower", action="store_true", help="Calibrate the follower arm")
+    parser.add_argument("--leader", action="store_true", required=False, help="Calibrate the leader arm")
+    parser.add_argument("--follower", action="store_true", required=False, help="Calibrate the follower arm")
 
     args = parser.parse_args()
 
