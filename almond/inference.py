@@ -17,8 +17,8 @@ CHUNK_SIZE_THRESHOLD = 0.5
 ACTIONS_PER_CHUNK = 50
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--server", action="store_true", required=True, help="Start the policy server")
-parser.add_argument("--client", action="store_true", required=True, help="Start the client")
+parser.add_argument("--server", action="store_true", required=False, help="Start the policy server")
+parser.add_argument("--client", action="store_true", required=False, help="Start the client")
 parser.add_argument("--policy", type=str, required=False, default=None, help="The path to the policy")
 parser.add_argument("--task", type=str, required=False, default=None, help="The task to perform")
 args = parser.parse_args()
