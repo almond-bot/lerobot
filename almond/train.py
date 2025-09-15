@@ -171,8 +171,12 @@ class TrainingRunner:
         except Exception as e:
             logger.error(f"Error streaming output: {e}")
 
-    def run_training(self, args: argparse.Namespace) -> None:
-        """Execute the training process with proper error handling and notifications."""
+    def run_training(self, args: argparse.Namespace) -> int:
+        """Execute the training process with proper error handling and notifications.
+
+        Returns:
+            int: Exit code (0 for success, non-zero for failure)
+        """
         cmd = self.build_train_command(args.name, args.policy, args.steps, args.scratch)
         self.start_time = datetime.now()
 
@@ -225,11 +229,11 @@ class TrainingRunner:
             if return_code == 0:
                 message = self.notifier.format_success_message(details)
                 self.notifier.send_notification(message)
-                exit(0)
             else:
                 message = self.notifier.format_failure_message(details, return_code, stderr_output)
                 self.notifier.send_notification(message)
-                exit(return_code)
+
+            return return_code
 
         except KeyboardInterrupt:
             # Terminate the process if it's still running
@@ -239,27 +243,35 @@ class TrainingRunner:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     process.kill()
-            self._handle_interruption(args)
+            return self._handle_interruption(args)
         except Exception as e:
-            self._handle_unexpected_error(args, str(e))
+            return self._handle_unexpected_error(args, str(e))
 
-    def _handle_interruption(self, args: argparse.Namespace) -> None:
-        """Handle training interruption (Ctrl+C)."""
+    def _handle_interruption(self, args: argparse.Namespace) -> int:
+        """Handle training interruption (Ctrl+C).
+
+        Returns:
+            int: Exit code 1 for interruption
+        """
         self.end_time = datetime.now()
         details = self.create_training_details(args)
         message = self.notifier.format_interrupted_message(details)
         self.notifier.send_notification(message)
         logger.info("\nTraining interrupted by user")
-        exit(1)
+        return 1
 
-    def _handle_unexpected_error(self, args: argparse.Namespace, error: str) -> None:
-        """Handle unexpected errors during training."""
+    def _handle_unexpected_error(self, args: argparse.Namespace, error: str) -> int:
+        """Handle unexpected errors during training.
+
+        Returns:
+            int: Exit code 1 for unexpected error
+        """
         self.end_time = datetime.now()
         details = self.create_training_details(args)
         message = self.notifier.format_error_message(details, error)
         self.notifier.send_notification(message)
         logger.error(f"Training failed with error: {error}")
-        exit(1)
+        return 1
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -285,8 +297,9 @@ def main() -> None:
     notifier = SlackNotifier(SLACK_ENG_OPERATIONS_URL)
     trainer = TrainingRunner(notifier)
 
-    # Run training
-    trainer.run_training(args)
+    # Run training and exit with the returned status code
+    exit_code = trainer.run_training(args)
+    exit(exit_code)
 
 
 if __name__ == "__main__":
