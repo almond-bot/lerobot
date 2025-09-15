@@ -9,6 +9,10 @@ from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import hw_to_dataset_features
+from lerobot.policies.act.modeling_act import ACTPolicy
+from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+from lerobot.policies.pi0fast.modeling_pi0fast import PI0FASTPolicy
+from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 from lerobot.record import record_loop
 from lerobot.robots.so100_follower import SO100Follower, SO100FollowerConfig
 from lerobot.teleoperators.so100_leader.config_so100_leader import SO100LeaderConfig
@@ -23,6 +27,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--name", type=str, required=True, help="The name of the task")
 parser.add_argument("--description", type=str, required=True, help="The description of the task")
 parser.add_argument("--extend", action="store_true", help="Extend the dataset with more episodes")
+parser.add_argument("--policy", type=str, default=None, help="The path to the policy")
 args = parser.parse_args()
 
 camera_config = {
@@ -34,11 +39,11 @@ camera_config = {
     ),
 }
 follower_config = SO100FollowerConfig(port=FOLLOWER_PORT, cameras=camera_config)
-leader_config = SO100LeaderConfig(port=LEADER_PORT)
+leader_config = SO100LeaderConfig(port=LEADER_PORT) if args.policy is None else None
 
 # Initialize the leader and follower
 follower = SO100Follower(follower_config)
-leader = SO100Leader(leader_config)
+leader = SO100Leader(leader_config) if args.policy is None else None
 
 # Configure the dataset features
 action_features = hw_to_dataset_features(follower.action_features, "action")
@@ -63,7 +68,7 @@ else:
 
 # Connect the leader and follower
 follower.connect()
-leader.connect()
+leader.connect() if args.policy is None else None
 
 opencv_cams = [cam for cam in follower.cameras.values() if isinstance(cam, OpenCVCamera)]
 for cam in opencv_cams:
@@ -97,6 +102,21 @@ def cmd_loop():
 cmd_thread = threading.Thread(target=cmd_loop)
 cmd_thread.start()
 
+# Initialize the policy
+if args.policy is not None:
+    if args.policy.startswith("act"):
+        policy = ACTPolicy.from_pretrained(args.policy)
+    elif args.policy.startswith("pi0"):
+        policy = PI0Policy.from_pretrained(args.policy)
+    elif args.policy.startswith("pi0fast"):
+        policy = PI0FASTPolicy.from_pretrained(args.policy)
+    elif args.policy.startswith("smolvla"):
+        policy = SmolVLAPolicy.from_pretrained(args.policy)
+    else:
+        raise ValueError(f"Invalid policy: {args.policy}")
+else:
+    policy = None
+
 # Record the episodes
 episode_idx = 0
 while not events["stop_recording"]:
@@ -115,6 +135,7 @@ while not events["stop_recording"]:
     print(f"Recording episode {episode_idx + 1}")
     record_loop(
         robot=follower,
+        policy=policy,
         events=events,
         fps=FPS,
         teleop=leader,
@@ -136,5 +157,5 @@ while not events["stop_recording"]:
 print("Stop recording")
 cmd_thread.join()
 follower.disconnect()
-leader.disconnect()
+leader.disconnect() if args.policy is None else None
 dataset.push_to_hub()
