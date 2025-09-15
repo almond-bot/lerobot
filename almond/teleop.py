@@ -2,7 +2,15 @@ import argparse
 
 import cv2
 import rerun
-from env import FOLLOWER_CAM_PORT, FOLLOWER_PORT, LEADER_PORT, OVERHEAD_CAM_PORT
+from env import (
+    CAMERA_HEIGHT,
+    CAMERA_WIDTH,
+    FOLLOWER_CAM_PORT,
+    FOLLOWER_PORT,
+    FPS,
+    LEADER_PORT,
+    OVERHEAD_CAM_PORT,
+)
 
 from lerobot.cameras.opencv.camera_opencv import OpenCVCamera
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
@@ -20,8 +28,12 @@ if args.visualize:
     _init_rerun(session_name="teleop")
 
 camera_config = {
-    "overhead": OpenCVCameraConfig(index_or_path=OVERHEAD_CAM_PORT, width=1920, height=1080, fps=30),
-    "follower": OpenCVCameraConfig(index_or_path=FOLLOWER_CAM_PORT, width=1920, height=1080, fps=30),
+    "overhead": OpenCVCameraConfig(
+        index_or_path=OVERHEAD_CAM_PORT, width=CAMERA_WIDTH, height=CAMERA_HEIGHT, fps=FPS
+    ),
+    "follower": OpenCVCameraConfig(
+        index_or_path=FOLLOWER_CAM_PORT, width=CAMERA_WIDTH, height=CAMERA_HEIGHT, fps=FPS
+    ),
 }
 
 follower_config = SO101FollowerConfig(port=FOLLOWER_PORT, cameras=camera_config)
