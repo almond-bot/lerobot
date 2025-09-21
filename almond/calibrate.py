@@ -1,13 +1,13 @@
 import argparse
 
-from env import FOLLOWER_PORT, LEADER_PORT
+from env import FOLLOWER_ID, FOLLOWER_PORT, LEADER_ID, LEADER_PORT
 
 from lerobot.robots.so101_follower import SO101Follower, SO101FollowerConfig
 from lerobot.teleoperators.so101_leader import SO101Leader, SO101LeaderConfig
 
 
 def calibrate_leader():
-    config = SO101LeaderConfig(port=LEADER_PORT)
+    config = SO101LeaderConfig(port=LEADER_PORT, id=LEADER_ID)
     leader = SO101Leader(config)
 
     leader.connect(calibrate=False)
@@ -16,7 +16,7 @@ def calibrate_leader():
 
 
 def calibrate_follower():
-    config = SO101FollowerConfig(port=FOLLOWER_PORT)
+    config = SO101FollowerConfig(port=FOLLOWER_PORT, id=FOLLOWER_ID)
     follower = SO101Follower(config)
 
     follower.connect(calibrate=False)

@@ -7,9 +7,11 @@ from env import (
     CAMERA_HEIGHT,
     CAMERA_WIDTH,
     FOLLOWER_CAM_PORT,
+    FOLLOWER_ID,
     FOLLOWER_PORT,
     FPS,
     HF_USER,
+    LEADER_ID,
     LEADER_PORT,
     OVERHEAD_CAM_PORT,
 )
@@ -46,8 +48,8 @@ camera_config = {
         index_or_path=FOLLOWER_CAM_PORT, width=CAMERA_WIDTH, height=CAMERA_HEIGHT, fps=FPS
     ),
 }
-follower_config = SO101FollowerConfig(port=FOLLOWER_PORT, cameras=camera_config)
-leader_config = SO101LeaderConfig(port=LEADER_PORT) if args.policy is None else None
+follower_config = SO101FollowerConfig(port=FOLLOWER_PORT, id=FOLLOWER_ID, cameras=camera_config)
+leader_config = SO101LeaderConfig(port=LEADER_PORT, id=LEADER_ID) if args.policy is None else None
 
 # Initialize the leader and follower
 follower = SO101Follower(follower_config)
