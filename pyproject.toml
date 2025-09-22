@@ -136,9 +136,6 @@ aloha = ["gym-aloha>=0.1.1"]
 pusht = ["gym-pusht>=0.1.5", "pymunk>=6.6.0,<7.0.0"] # TODO: Fix pymunk version in gym-pusht instead
 xarm = ["gym-xarm>=0.1.1"]
 
-# Almond
-almond = ["python-dotenv>=1.0.1", "requests>=2.32.5", "logtail-python>=0.3.3"]
-
 # All
 all = [
     "lerobot[dynamixel]",
@@ -171,17 +168,6 @@ lerobot-setup-motors="lerobot.setup_motors:main"
 lerobot-teleoperate="lerobot.teleoperate:main"
 lerobot-eval="lerobot.scripts.eval:main"
 lerobot-train="lerobot.scripts.train:main"
-
-# Almond uv configuration
-[tool.uv.sources]
-torch = { index = "pytorch" }
-torchvision = { index = "pytorch" }
-torchcodec = { index = "pytorch" }
-
-[[tool.uv.index]]
-name = "pytorch"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
 
 # ---------------- Tool Configurations ----------------
 [tool.setuptools.packages.find]
