@@ -31,7 +31,10 @@ import packaging.version
 import torch
 from datasets.table import embed_table_storage
 from huggingface_hub import DatasetCard, DatasetCardData, HfApi
-from huggingface_hub.errors import RevisionNotFoundError
+try:  # pragma: no cover - compatibility across hub releases
+    from huggingface_hub.errors import RevisionNotFoundError
+except ImportError:  # pragma: no cover
+    from huggingface_hub.errors import HTTPError as RevisionNotFoundError  # type: ignore
 from PIL import Image as PILImage
 from torchvision import transforms
 

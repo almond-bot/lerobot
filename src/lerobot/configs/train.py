@@ -19,12 +19,16 @@ from pathlib import Path
 
 import draccus
 from huggingface_hub import hf_hub_download
-from huggingface_hub.errors import HfHubHTTPError
+try:  # pragma: no cover - API surface changed across hub releases
+    from huggingface_hub.errors import HfHubHTTPError
+except ImportError:  # pragma: no cover - fallback for older/newer versions
+    from huggingface_hub.errors import HTTPError as HfHubHTTPError
 
 from lerobot import envs
 from lerobot.configs import parser
 from lerobot.configs.default import DatasetConfig, EvalConfig, WandBConfig
 from lerobot.configs.policies import PreTrainedConfig
+from lerobot.configs.reward import RewardConfig
 from lerobot.optim import OptimizerConfig
 from lerobot.optim.schedulers import LRSchedulerConfig
 from lerobot.utils.hub import HubMixin
@@ -37,6 +41,7 @@ class TrainPipelineConfig(HubMixin):
     dataset: DatasetConfig
     env: envs.EnvConfig | None = None
     policy: PreTrainedConfig | None = None
+    reward: RewardConfig | None = None
     # Set `dir` to where you would like to save all of the run outputs. If you run another training session
     # with the same value for `dir` its contents will be overwritten unless you set `resume` to true.
     output_dir: Path | None = None
@@ -91,11 +96,19 @@ class TrainPipelineConfig(HubMixin):
             self.policy.pretrained_path = policy_path
             self.checkpoint_path = policy_path.parent
 
+        reward_path = parser.get_path_arg("reward")
+        if reward_path:
+            cli_overrides = parser.get_cli_overrides("reward")
+            self.reward = RewardConfig.from_pretrained(reward_path, cli_overrides=cli_overrides)
+
         if not self.job_name:
             if self.env is None:
-                self.job_name = f"{self.policy.type}"
+                base_name = self.policy.type if self.policy is not None else "policy"
             else:
-                self.job_name = f"{self.env.type}_{self.policy.type}"
+                base_name = f"{self.env.type}_{self.policy.type}"
+            if self.reward is not None:
+                base_name = f"{base_name}_{self.reward.type}"
+            self.job_name = base_name
 
         if not self.resume and isinstance(self.output_dir, Path) and self.output_dir.is_dir():
             raise FileExistsError(
@@ -123,8 +136,8 @@ class TrainPipelineConfig(HubMixin):
 
     @classmethod
     def __get_path_fields__(cls) -> list[str]:
-        """This enables the parser to load config from the policy using `--policy.path=local/dir`"""
-        return ["policy"]
+        """Enable CLI overrides for policy and reward configuration paths."""
+        return ["policy", "reward"]
 
     def to_dict(self) -> dict:
         return draccus.encode(self)

@@ -28,7 +28,10 @@ import torch.utils
 from datasets import concatenate_datasets, load_dataset
 from huggingface_hub import HfApi, snapshot_download
 from huggingface_hub.constants import REPOCARD_NAME
-from huggingface_hub.errors import RevisionNotFoundError
+try:  # pragma: no cover - compatibility across hub versions
+    from huggingface_hub.errors import RevisionNotFoundError
+except ImportError:  # pragma: no cover
+    from huggingface_hub.errors import HTTPError as RevisionNotFoundError  # type: ignore
 
 from lerobot.constants import HF_LEROBOT_HOME
 from lerobot.datasets.compute_stats import aggregate_stats, compute_episode_stats

@@ -15,15 +15,17 @@
 # limitations under the License.
 
 import functools
+import logging
 from collections.abc import Callable, Sequence
 from contextlib import suppress
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import torch
 import torch.nn.functional as F  # noqa: N812
 from tqdm import tqdm
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.rewards.base import RewardProvider, ensure_reward_output
 from lerobot.utils.transition import Transition
 
 
@@ -35,6 +37,9 @@ class BatchTransition(TypedDict):
     done: torch.Tensor
     truncated: torch.Tensor
     complementary_info: dict[str, torch.Tensor | float | int] | None = None
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def random_crop_vectorized(images: torch.Tensor, output_size: tuple) -> torch.Tensor:
@@ -415,6 +420,7 @@ class ReplayBuffer:
         use_drq: bool = True,
         storage_device: str = "cpu",
         optimize_memory: bool = False,
+        reward_provider: RewardProvider | None = None,
     ) -> "ReplayBuffer":
         """
         Convert a LeRobotDataset into a ReplayBuffer.
@@ -454,7 +460,11 @@ class ReplayBuffer:
         )
 
         # Convert dataset to transitions
-        list_transition = cls._lerobotdataset_to_transitions(dataset=lerobot_dataset, state_keys=state_keys)
+        list_transition = cls._lerobotdataset_to_transitions(
+            dataset=lerobot_dataset,
+            state_keys=state_keys,
+            reward_provider=reward_provider,
+        )
 
         # Initialize the buffer with the first transition to set up storage tensors
         if list_transition:
@@ -615,6 +625,7 @@ class ReplayBuffer:
     def _lerobotdataset_to_transitions(
         dataset: LeRobotDataset,
         state_keys: Sequence[str] | None = None,
+        reward_provider: RewardProvider | None = None,
     ) -> list[Transition]:
         """
         Convert a LeRobotDataset into a list of RL (s, a, r, s', done) transitions.
@@ -659,8 +670,30 @@ class ReplayBuffer:
         if not has_done_key:
             print("'next.done' key not found in dataset. Inferring from episode boundaries...")
 
+        last_episode_index = None
+        last_progress_val = 0.0
+        last_prev_progress_val = 0.0
+        missing_image_warning_emitted = False
+        provider_failure_warning_emitted = False
+        expected_milestone_keys: set[str] = set()
+        if reward_provider is not None:
+            reward_provider.reset()
+            names = getattr(reward_provider, "milestone_names", None)
+            if names:
+                expected_milestone_keys.update(
+                    f"vlm_milestone_{name}" for name in names if isinstance(name, str)
+                )
+
         for i in tqdm(range(num_frames)):
             current_sample = dataset[i]
+
+            episode_tensor = current_sample.get("episode_index", torch.tensor([0]))
+            episode_index = int(episode_tensor.item())
+            if reward_provider is not None and episode_index != last_episode_index:
+                reward_provider.reset()
+                last_episode_index = episode_index
+                last_progress_val = 0.0
+                last_prev_progress_val = 0.0
 
             # ----- 1) Current state -----
             current_state: dict[str, torch.Tensor] = {}
@@ -714,8 +747,9 @@ class ReplayBuffer:
 
             # ----- 5) Complementary info (if available) -----
             complementary_info = None
-            if has_complementary_info:
+            if reward_provider is not None or has_complementary_info:
                 complementary_info = {}
+            if has_complementary_info:
                 for key in complementary_info_keys:
                     # Strip the "complementary_info." prefix to get the actual key
                     clean_key = key[len("complementary_info.") :]
@@ -727,6 +761,79 @@ class ReplayBuffer:
                         # TODO: (azouitine) Check if it's necessary to convert to tensor
                         # For non-tensor values, use directly
                         complementary_info[clean_key] = val
+
+            if reward_provider is not None:
+                obs_for_provider = {
+                    key: current_sample[key]
+                    for key in current_sample
+                    if isinstance(key, str) and "image" in key
+                }
+                info: dict[str, Any] = {}
+                reward_output = None
+                if not obs_for_provider:
+                    if not missing_image_warning_emitted:
+                        LOGGER.warning(
+                            "Reward provider requested but dataset sample %s lacks image observations; "
+                            "dense rewards will be zero until images are available.",
+                            i,
+                        )
+                        missing_image_warning_emitted = True
+                else:
+                    try:
+                        raw_output = reward_provider.compute(obs_for_provider, info=info)
+                        reward_output = ensure_reward_output(raw_output)
+                    except Exception as exc:  # pragma: no cover - relies on provider implementation
+                        log_fn = LOGGER.warning if not provider_failure_warning_emitted else LOGGER.debug
+                        log_fn("Reward provider failed on dataset sample %s: %s", i, exc)
+                        provider_failure_warning_emitted = True
+
+                prior_progress = last_progress_val
+                if reward_output is not None:
+                    progress_val = float(reward_output.progress)
+                    extras = reward_output.extras or {}
+                    prev_progress_val = float(extras.get("prev_progress", prior_progress))
+                    dense_reward_val = float(reward_output.reward)
+                    milestone_outputs = reward_output.milestones or {}
+                else:
+                    progress_val = prior_progress
+                    prev_progress_val = last_prev_progress_val
+                    dense_reward_val = 0.0
+                    milestone_outputs: dict[str, Any] = {}
+
+                last_prev_progress_val = prev_progress_val
+                last_progress_val = progress_val
+
+                if complementary_info is None:
+                    complementary_info = {}
+
+                complementary_info["vlm_progress"] = torch.tensor([progress_val], dtype=torch.float32)
+                complementary_info["vlm_prev_progress"] = torch.tensor(
+                    [prev_progress_val], dtype=torch.float32
+                )
+                complementary_info["vlm_reward"] = torch.tensor([dense_reward_val], dtype=torch.float32)
+
+                new_milestone_keys: list[str] = []
+                for name, value in milestone_outputs.items():
+                    key = f"vlm_milestone_{name}"
+                    if key not in expected_milestone_keys:
+                        expected_milestone_keys.add(key)
+                        new_milestone_keys.append(key)
+                    complementary_info[key] = torch.tensor([int(bool(value))], dtype=torch.int32)
+
+                if new_milestone_keys:
+                    zero_template = torch.zeros((1,), dtype=torch.int32)
+                    for transition in transitions:
+                        info_prev = transition.get("complementary_info")
+                        if info_prev is None:
+                            info_prev = {}
+                            transition["complementary_info"] = info_prev
+                        for key in new_milestone_keys:
+                            if key not in info_prev:
+                                info_prev[key] = zero_template.clone()
+
+                for key in expected_milestone_keys:
+                    if key not in complementary_info:
+                        complementary_info[key] = torch.zeros((1,), dtype=torch.int32)
 
             # ----- Construct the Transition -----
             transition = Transition(

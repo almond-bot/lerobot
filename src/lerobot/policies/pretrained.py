@@ -24,7 +24,10 @@ import packaging
 import safetensors
 from huggingface_hub import HfApi, ModelCard, ModelCardData, hf_hub_download
 from huggingface_hub.constants import SAFETENSORS_SINGLE_FILE
-from huggingface_hub.errors import HfHubHTTPError
+try:  # pragma: no cover - compatibility across hub versions
+    from huggingface_hub.errors import HfHubHTTPError
+except ImportError:  # pragma: no cover
+    from huggingface_hub.errors import HTTPError as HfHubHTTPError
 from safetensors.torch import load_model as load_model_as_safetensor, save_model as save_model_as_safetensor
 from torch import Tensor, nn
 

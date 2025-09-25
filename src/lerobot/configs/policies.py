@@ -24,7 +24,10 @@ from typing import TypeVar
 import draccus
 from huggingface_hub import hf_hub_download
 from huggingface_hub.constants import CONFIG_NAME
-from huggingface_hub.errors import HfHubHTTPError
+try:  # pragma: no cover - compatibility across hub releases
+    from huggingface_hub.errors import HfHubHTTPError
+except ImportError:  # pragma: no cover - fallback when renamed
+    from huggingface_hub.errors import HTTPError as HfHubHTTPError
 
 from lerobot.configs.types import FeatureType, NormalizationMode, PolicyFeature
 from lerobot.constants import ACTION, OBS_STATE
