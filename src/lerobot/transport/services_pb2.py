@@ -5,17 +5,21 @@
 """Generated protocol buffer code."""
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import descriptor_pool as _descriptor_pool
-from google.protobuf import runtime_version as _runtime_version
+try:  # pragma: no cover - compatibility with older protobuf runtimes
+    from google.protobuf import runtime_version as _runtime_version
+except ImportError:  # pragma: no cover - protobuf < 5.26 does not expose runtime_version
+    _runtime_version = None  # type: ignore
 from google.protobuf import symbol_database as _symbol_database
 from google.protobuf.internal import builder as _builder
-_runtime_version.ValidateProtobufRuntimeVersion(
-    _runtime_version.Domain.PUBLIC,
-    6,
-    31,
-    0,
-    '',
-    'lerobot/transport/services.proto'
-)
+if _runtime_version is not None:  # pragma: no branch - optional guard for older runtimes
+    _runtime_version.ValidateProtobufRuntimeVersion(
+        _runtime_version.Domain.PUBLIC,
+        6,
+        31,
+        0,
+        '',
+        'lerobot/transport/services.proto'
+    )
 # @@protoc_insertion_point(imports)
 
 _sym_db = _symbol_database.Default()

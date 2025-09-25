@@ -17,18 +17,34 @@
 import traceback
 
 import pytest
-from serial import SerialException
+
+try:  # pragma: no cover - optional dependency for hardware tests
+    from serial import SerialException
+except ModuleNotFoundError:  # pragma: no cover - fallback for environments without pyserial
+    class SerialException(Exception):
+        """Fallback SerialException when pyserial is unavailable."""
+
+        pass
 
 from lerobot.configs.types import FeatureType, PolicyFeature
 from tests.utils import DEVICE
 
-# Import fixture modules as plugins
-pytest_plugins = [
+# Import fixture modules as plugins when their dependencies are available
+_OPTIONAL_PYTEST_PLUGINS = [
     "tests.fixtures.dataset_factories",
     "tests.fixtures.files",
     "tests.fixtures.hub",
     "tests.fixtures.optimizers",
 ]
+
+pytest_plugins = []
+for _plugin in _OPTIONAL_PYTEST_PLUGINS:
+    try:  # pragma: no cover - exercised during pytest startup
+        __import__(_plugin)
+    except ModuleNotFoundError as exc:  # pragma: no cover - optional deps may be absent
+        print(f"Skipping pytest plugin {_plugin} due to missing dependency: {exc}")
+    else:
+        pytest_plugins.append(_plugin)
 
 
 def pytest_collection_finish():

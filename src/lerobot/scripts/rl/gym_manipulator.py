@@ -41,7 +41,7 @@ import time
 from collections import deque
 from collections.abc import Sequence
 from threading import Lock
-from typing import Annotated, Any, Optional, Dict
+from typing import Annotated, Any
 
 import gymnasium as gym
 import numpy as np
@@ -51,9 +51,12 @@ import torchvision.transforms.functional as F  # noqa: N812
 import lerobot.policies  # noqa: F401
 from lerobot.cameras import opencv  # noqa: F401
 from lerobot.configs import parser
+from lerobot.configs.reward import RewardConfig
 from lerobot.envs.configs import EnvConfig
 from lerobot.envs.utils import preprocess_observation
 from lerobot.model.kinematics import RobotKinematics
+from lerobot.rewards import make_reward
+from lerobot.rewards.base import RewardProvider
 from lerobot.robots import (  # noqa: F401
     RobotConfig,
     make_robot_from_config,
@@ -530,68 +533,95 @@ class AddCurrentToObservation(gym.ObservationWrapper):
 
 
 class RewardWrapper(gym.Wrapper):
-    def __init__(self, env, reward_classifier, device="cuda"):
-        """
-        Wrapper to add reward prediction to the environment using a trained classifier.
+    def __init__(
+        self,
+        env,
+        reward_classifier=None,
+        *,
+        reward_provider: RewardProvider | None = None,
+        device: str = "cuda",
+        dense_lambda: float = 1.0,
+        success_threshold: float = 0.95,
+        allow_sparse_fallback: bool = True,
+    ):
+        """Wrapper that augments sparse rewards with dense VLM feedback."""
 
-        Args:
-            env: The environment to wrap.
-            reward_classifier: The reward classifier model.
-            device: The device to run the model on.
-        """
         self.env = env
-
         self.device = device
+        self.reward_provider = reward_provider
+        self.dense_lambda = float(np.clip(dense_lambda, 0.0, 1.0))
+        self.success_threshold = success_threshold
+        self.allow_sparse_fallback = allow_sparse_fallback
 
-        self.reward_classifier = torch.compile(reward_classifier)
-        self.reward_classifier.to(self.device)
+        self.reward_classifier = None
+        if reward_classifier is not None:
+            self.reward_classifier = torch.compile(reward_classifier)
+            self.reward_classifier.to(self.device)
 
     def step(self, action):
-        """
-        Execute a step and compute the reward using the classifier.
+        observation, sparse_reward, terminated, truncated, info = self.env.step(action)
 
-        Args:
-            action: The action to take in the environment.
+        sparse_reward = float(sparse_reward)
+        classifier_success = False
 
-        Returns:
-            Tuple of (observation, reward, terminated, truncated, info).
-        """
-        observation, _, terminated, truncated, info = self.env.step(action)
+        if self.reward_classifier is not None:
+            images: dict[str, torch.Tensor] = {}
+            for key in observation:
+                if "image" in key:
+                    tensor = observation[key]
+                    if isinstance(tensor, torch.Tensor):
+                        tensor = tensor.to(self.device, non_blocking=(self.device == "cuda"))
+                        if tensor.dim() == 3:
+                            tensor = tensor.unsqueeze(0)
+                    images[key] = tensor
 
-        images = {}
-        for key in observation:
-            if "image" in key:
-                images[key] = observation[key].to(self.device, non_blocking=(self.device == "cuda"))
-                if images[key].dim() == 3:
-                    images[key] = images[key].unsqueeze(0)
+            start_time = time.perf_counter()
+            with torch.inference_mode():
+                success = self.reward_classifier.predict_reward(images, threshold=0.7)
+            info["Reward classifier frequency"] = 1 / (time.perf_counter() - start_time)
+            if success == 1.0:
+                sparse_reward = 1.0
+                terminated = True
+                classifier_success = True
 
-        start_time = time.perf_counter()
-        with torch.inference_mode():
-            success = (
-                self.reward_classifier.predict_reward(images, threshold=0.7)
-                if self.reward_classifier is not None
-                else 0.0
-            )
-        info["Reward classifier frequency"] = 1 / (time.perf_counter() - start_time)
+        dense_reward = None
+        progress = None
+        prev_progress = None
+        milestones = None
+        if self.reward_provider is not None:
+            output = self.reward_provider.compute(observation, info=info)
+            dense_reward = output.reward
+            progress = output.progress
+            prev_progress = (output.extras or {}).get("prev_progress") if output.extras else None
+            milestones = output.milestones or {}
 
-        reward = 0.0
-        if success == 1.0:
-            terminated = True
-            reward = 1.0
+            info.setdefault("dense.reward", dense_reward)
+            info.setdefault("dense.progress", progress)
+            if prev_progress is not None:
+                info.setdefault("dense.prev_progress", prev_progress)
+            for name, value in milestones.items():
+                info.setdefault(f"dense.milestone.{name}", bool(value))
+
+        reward = sparse_reward
+        if dense_reward is not None:
+            reward = self.dense_lambda * float(dense_reward) + (1.0 - self.dense_lambda) * sparse_reward
+            reward = float(np.clip(reward, 0.0, 1.0))
+
+        if progress is not None and progress >= self.success_threshold:
+            info.setdefault("dense.success", True)
+            if dense_reward is not None:
+                reward = max(reward, float(dense_reward))
+            if self.allow_sparse_fallback:
+                terminated = True
+
+        info.setdefault("sparse.reward", sparse_reward)
+        info.setdefault("sparse.classifier_success", classifier_success)
 
         return observation, reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
-        """
-        Reset the environment.
-
-        Args:
-            seed: Random seed for reproducibility.
-            options: Additional reset options.
-
-        Returns:
-            The initial observation and info from the wrapped environment.
-        """
+        if self.reward_provider is not None:
+            self.reward_provider.reset()
         return self.env.reset(seed=seed, options=options)
 
 
@@ -1839,7 +1869,12 @@ class GymHilObservationProcessorWrapper(gym.ObservationWrapper):
 ###########################################################
 
 
-def make_robot_env(cfg: EnvConfig) -> gym.Env:
+def make_robot_env(
+    cfg: EnvConfig,
+    *,
+    reward_provider: RewardProvider | None = None,
+    reward_cfg: RewardConfig | None = None,
+) -> gym.Env:
     """
     Factory function to create a robot environment.
 
@@ -1848,6 +1883,9 @@ def make_robot_env(cfg: EnvConfig) -> gym.Env:
 
     Args:
         cfg: Configuration object containing environment parameters.
+        reward_provider: Optional pre-instantiated reward provider.
+        reward_cfg: Optional reward configuration used to instantiate a provider
+            when ``reward_provider`` is not supplied.
 
     Returns:
         A gym environment with all necessary wrappers applied.
@@ -1907,8 +1945,23 @@ def make_robot_env(cfg: EnvConfig) -> gym.Env:
 
     # Add reward computation and control wrappers
     reward_classifier = init_reward_classifier(cfg)
-    if reward_classifier is not None:
-        env = RewardWrapper(env=env, reward_classifier=reward_classifier, device=cfg.device)
+    provider = reward_provider
+    if provider is None and reward_cfg is not None:
+        provider = make_reward(reward_cfg, device=reward_cfg.device or cfg.device)
+
+    if reward_classifier is not None or provider is not None:
+        dense_lambda = reward_cfg.dense_lambda if reward_cfg else 1.0
+        success_threshold = reward_cfg.success_threshold if reward_cfg else 0.95
+        allow_sparse = reward_cfg.allow_sparse_fallback if reward_cfg else True
+        env = RewardWrapper(
+            env=env,
+            reward_classifier=reward_classifier,
+            reward_provider=provider,
+            device=cfg.device,
+            dense_lambda=dense_lambda,
+            success_threshold=success_threshold,
+            allow_sparse_fallback=allow_sparse,
+        )
 
     env = TimeLimitWrapper(env=env, control_time_s=cfg.wrapper.control_time_s, fps=cfg.fps)
     if cfg.wrapper.use_gripper and cfg.wrapper.gripper_penalty is not None:
@@ -2002,11 +2055,7 @@ def init_reward_classifier(cfg):
 
 
 def record_dataset_with_embeddings(
-    env,
-    policy,
-    cfg,
-    embedding_dim: int = 384,
-    compute_embeddings: bool = True
+    env, policy, cfg, embedding_dim: int = 384, compute_embeddings: bool = True
 ):
     """
     Record a dataset with precomputed action embeddings.
@@ -2126,7 +2175,7 @@ def record_dataset_with_embeddings(
             # Always record the teleoperated action from intervention
             recorded_action = info["action_intervention"].cpu().squeeze(0).float()
 
-            print("recoreded_action.shape:", recorded_action)
+            print("recorded_action.shape:", recorded_action)
 
             print(f"recorded_action: {recorded_action}")
 
@@ -2212,7 +2261,7 @@ def record_dataset_with_embeddings(
         dataset.save_episode()
         episode_index += 1
 
-        logging.info(f"Episode {episode_index-1} recorded with {len(trajectory)} frames and embeddings")
+        logging.info(f"Episode {episode_index - 1} recorded with {len(trajectory)} frames and embeddings")
 
     # Finalize dataset
     if cfg.push_to_hub:
@@ -2484,13 +2533,13 @@ def main(cfg: EnvConfig):
         policy.eval()
 
         # Check if embeddings should be computed
-        if hasattr(cfg, 'embeddings') and cfg.embeddings.compute_embeddings:
+        if hasattr(cfg, "embeddings") and cfg.embeddings.compute_embeddings:
             record_dataset_with_embeddings(
                 env,
                 policy=policy,
                 cfg=cfg,
                 embedding_dim=cfg.embeddings.embedding_dim,
-                compute_embeddings=True
+                compute_embeddings=True,
             )
         else:
             record_dataset(

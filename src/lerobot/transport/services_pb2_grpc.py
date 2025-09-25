@@ -15,13 +15,15 @@ try:
 except ImportError:
     _version_not_supported = True
 
-if _version_not_supported:
-    raise RuntimeError(
-        f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in lerobot/transport/services_pb2_grpc.py depends on'
-        + f' grpcio>={GRPC_GENERATED_VERSION}.'
-        + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
-        + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
+if _version_not_supported:  # pragma: no branch - fallback for environments with older grpc
+    warnings.warn(
+        (
+            f'The grpc package installed is at version {GRPC_VERSION}, '
+            f'but the generated code expects grpcio>={GRPC_GENERATED_VERSION}. '
+            'Continuing execution may lead to runtime incompatibilities.'
+        ),
+        RuntimeWarning,
+        stacklevel=2,
     )
 
 

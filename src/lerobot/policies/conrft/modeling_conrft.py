@@ -29,6 +29,7 @@ Paper: https://arxiv.org/abs/2502.05450
 """
 
 from dataclasses import asdict
+from itertools import chain
 from typing import Literal
 
 import einops
@@ -37,7 +38,6 @@ import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 from torch import Tensor
 
-from lerobot.constants import ACTION
 from lerobot.policies.conrft.configuration_conrft import ConRFTConfig
 from lerobot.policies.normalize import NormalizeBuffer, UnnormalizeBuffer
 from lerobot.policies.octo.modeling_octo import OctoPolicy
@@ -82,6 +82,7 @@ class ConRFTPolicy(PreTrainedPolicy):
         self._init_encoders()
         self._init_consistency_policy(continuous_action_dim)
         self._init_critics(continuous_action_dim)
+        self._init_progress_head()
 
         # Training stage and loss weights
         self.training_stage = "offline"
@@ -179,6 +180,17 @@ class ConRFTPolicy(PreTrainedPolicy):
             self.critic_ensemble = torch.compile(self.critic_ensemble)
             self.critic_ensemble_target = torch.compile(self.critic_ensemble_target)
 
+    def _init_progress_head(self):
+        self.progress_head = None
+        if not self.config.use_vlm_progress:
+            return
+
+        hidden_dim = self.config.consistency_hidden_dim
+        self.progress_head = nn.Sequential(
+            nn.Linear(self.encoder_critic.output_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),
+        )
 
     def _encode_state(self, batch: dict[str, Tensor]) -> tuple[Tensor, Tensor]:
         """Encode observations into state representation using VLA"""
@@ -188,8 +200,12 @@ class ConRFTPolicy(PreTrainedPolicy):
         """Return parameters for optimization"""
         params = {
             "consistency_policy": self.consistency_policy.parameters(),
-            "critic": self.critic_ensemble.parameters(),
         }
+
+        critic_modules = [self.critic_ensemble.parameters()]
+        if getattr(self, "progress_head", None) is not None:
+            critic_modules.append(self.progress_head.parameters())
+        params["critic"] = chain(*critic_modules)
 
         if self.encoder_actor is not None and not self.config.freeze_base_vla:
             params["encoder_actor"] = self.encoder_actor.parameters()
@@ -410,7 +426,9 @@ class ConRFTPolicy(PreTrainedPolicy):
         flat_actions = all_sampled_actions.reshape(-1, all_sampled_actions.shape[-1])
 
         if observation_features is not None:
-            expanded_obs_features = {k: torch.repeat_interleave(v, num_actions, dim=0) for k, v in observation_features.items()}
+            expanded_obs_features = {
+                k: torch.repeat_interleave(v, num_actions, dim=0) for k, v in observation_features.items()
+            }
         else:
             expanded_obs_features = None
 
@@ -544,6 +562,43 @@ class ConRFTPolicy(PreTrainedPolicy):
             "q_mean": q_value.mean(),
         }
 
+    def compute_progress_aux_loss(self, batch: dict[str, Tensor]) -> dict[str, Tensor] | None:
+        if not self.config.use_vlm_progress or getattr(self, "progress_head", None) is None:
+            return None
+
+        complementary_info = batch.get("complementary_info")
+        if complementary_info is None or "vlm_progress" not in complementary_info:
+            return None
+
+        device = get_device_from_parameters(self.progress_head)
+        target = complementary_info["vlm_progress"].to(device)
+        target = target.view(-1)
+
+        observation_features = batch.get("observation_feature")
+        observations = batch["state"]
+        features = self.encoder_critic(observations, cache=observation_features)
+        preds = torch.sigmoid(self.progress_head(features)).view(-1)
+
+        loss = F.smooth_l1_loss(preds, target)
+        total_loss = loss * self.config.progress_loss_weight
+
+        metrics = {
+            "progress_loss": loss.detach().item(),
+            "progress_pred_mean": preds.mean().detach().item(),
+            "progress_target_mean": target.mean().detach().item(),
+        }
+
+        prev = complementary_info.get("vlm_prev_progress")
+        if prev is not None and self.config.progress_delta_loss_weight > 0:
+            prev = prev.to(preds.device).view(-1)
+            delta_target = target - prev
+            delta_pred = preds - prev
+            delta_loss = F.smooth_l1_loss(delta_pred, delta_target)
+            total_loss = total_loss + delta_loss * self.config.progress_delta_loss_weight
+            metrics["progress_delta_loss"] = delta_loss.detach().item()
+
+        return {"loss": total_loss, "metrics": metrics}
+
 
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
@@ -554,7 +609,7 @@ class SinusoidalPosEmb(nn.Module):
         # Precompute the embedding frequencies
         emb = torch.log(torch.tensor(10000.0)) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, dtype=torch.float) * -emb)
-        self.register_buffer('emb', emb)
+        self.register_buffer("emb", emb)
 
     def forward(self, time):
         embeddings = time[:, None] * self.emb

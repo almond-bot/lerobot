@@ -63,6 +63,7 @@ from lerobot.configs.train import TrainRLServerPipelineConfig
 from lerobot.policies.conrft.modeling_conrft import ConRFTPolicy
 from lerobot.policies.factory import make_policy
 from lerobot.policies.sac.modeling_sac import SACPolicy
+from lerobot.rewards import make_reward
 from lerobot.robots import so100_follower  # noqa: F401
 from lerobot.scripts.rl.data_util import add_mc_returns_to_trajectory
 from lerobot.scripts.rl.gym_manipulator import make_robot_env
@@ -238,7 +239,16 @@ def act_with_policy(
 
     logging.info("make_env online")
 
-    online_env = make_robot_env(cfg=cfg.env)
+    reward_provider = None
+    if cfg.reward is not None:
+        reward_device = cfg.reward.device or getattr(cfg.policy, "device", None)
+        reward_provider = make_reward(cfg.reward, device=reward_device)
+
+    online_env = make_robot_env(
+        cfg=cfg.env,
+        reward_provider=reward_provider,
+        reward_cfg=cfg.reward,
+    )
 
     set_seed(cfg.seed)
     device = get_safe_torch_device(cfg.policy.device, log=True)
@@ -257,8 +267,7 @@ def act_with_policy(
     )
 
     # Load from pretrained checkpoint if specified (for online training after offline training)
-    if hasattr(cfg.policy, 'pretrained_model_path') and cfg.policy.pretrained_model_path is not None:
-        import os
+    if hasattr(cfg.policy, "pretrained_model_path") and cfg.policy.pretrained_model_path is not None:
         pretrained_path = cfg.policy.pretrained_model_path
         if os.path.exists(pretrained_path):
             logging.info(f"Loading pretrained policy from: {pretrained_path}")
@@ -304,13 +313,14 @@ def act_with_policy(
         if interaction_step >= cfg.policy.online_step_before_learning:
             # Time policy inference and check if it meets FPS requirement
             with policy_timer:
-                if isinstance(policy, ConRFTPolicy) and hasattr(policy, 'select_action_with_embedding'):
+                if isinstance(policy, ConRFTPolicy) and hasattr(policy, "select_action_with_embedding"):
                     action, current_action_embedding = policy.select_action_with_embedding(batch=obs)
                     if current_action_embedding is not None:
                         current_action_embedding = current_action_embedding.cpu()
                 else:
                     action = policy.select_action(batch=obs)
             policy_fps = policy_timer.fps_last
+            logging.debug("Policy inference FPS: %.2f", policy_fps)
 
             # log_policy_frequency_issue(policy_fps=policy_fps, cfg=cfg, interaction_step=interaction_step)
 

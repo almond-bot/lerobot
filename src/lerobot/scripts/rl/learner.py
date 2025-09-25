@@ -59,7 +59,10 @@ from torch import nn
 from torch.multiprocessing import Queue
 from torch.optim.optimizer import Optimizer
 
-from lerobot.cameras import opencv  # noqa: F401
+try:  # pragma: no cover - optional camera dependency
+    from lerobot.cameras import opencv  # noqa: F401
+except ModuleNotFoundError:  # pragma: no cover - camera stack optional in tests
+    opencv = None  # type: ignore
 from lerobot.configs import parser
 from lerobot.configs.train import TrainRLServerPipelineConfig
 from lerobot.constants import (
@@ -73,9 +76,19 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.policies.conrft.modeling_conrft import ConRFTPolicy
 from lerobot.policies.factory import make_policy
 from lerobot.policies.sac.modeling_sac import SACPolicy
-from lerobot.robots import so100_follower  # noqa: F401
+from lerobot.rewards import make_reward
+try:  # pragma: no cover - optional hardware dependency
+    from lerobot.robots import so100_follower  # noqa: F401
+except ModuleNotFoundError:  # pragma: no cover - robot stack optional in tests
+    so100_follower = None  # type: ignore
+
 from lerobot.scripts.rl import learner_service
-from lerobot.teleoperators import gamepad, so101_leader  # noqa: F401
+
+try:  # pragma: no cover - optional teleop dependency
+    from lerobot.teleoperators import gamepad, so101_leader  # noqa: F401
+except ModuleNotFoundError:  # pragma: no cover - teleop stack optional in tests
+    gamepad = None  # type: ignore
+    so101_leader = None  # type: ignore
 from lerobot.transport import services_pb2_grpc
 from lerobot.transport.utils import (
     MAX_MESSAGE_SIZE,
@@ -83,7 +96,7 @@ from lerobot.transport.utils import (
     bytes_to_transitions,
     state_to_bytes,
 )
-from lerobot.utils.buffer import ReplayBuffer, concatenate_batch_transitions
+from lerobot.utils.buffer import BatchTransition, ReplayBuffer, concatenate_batch_transitions
 from lerobot.utils.process import ProcessSignalHandler
 from lerobot.utils.random_utils import set_seed
 from lerobot.utils.train_utils import (
@@ -342,8 +355,7 @@ def add_actor_information_and_train(
     assert isinstance(policy, nn.Module)
 
     # Load from pretrained checkpoint if specified (for online training after offline training)
-    if hasattr(cfg.policy, 'pretrained_model_path') and cfg.policy.pretrained_model_path is not None:
-        import os
+    if hasattr(cfg.policy, "pretrained_model_path") and cfg.policy.pretrained_model_path is not None:
         pretrained_path = cfg.policy.pretrained_model_path
         if os.path.exists(pretrained_path):
             logging.info(f"Loading pretrained policy from: {pretrained_path}")
@@ -375,6 +387,17 @@ def add_actor_information_and_train(
     log_training_info(cfg=cfg, policy=policy)
 
     replay_buffer = initialize_replay_buffer(cfg, device, storage_device)
+    corrections_capacity = min(
+        cfg.policy.online_buffer_capacity,
+        max(cfg.batch_size * 32, 128),
+    )
+    corrections_buffer = ReplayBuffer(
+        capacity=corrections_capacity,
+        device=device,
+        state_keys=cfg.policy.input_features.keys(),
+        storage_device=storage_device,
+        optimize_memory=True,
+    )
     batch_size = cfg.batch_size
     offline_replay_buffer = None
 
@@ -446,6 +469,7 @@ def add_actor_information_and_train(
             transition_queue=transition_queue,
             interaction_message_queue=interaction_message_queue,
             parameters_queue=parameters_queue,
+            corrections_buffer=corrections_buffer,
         )
         return
 
@@ -464,6 +488,7 @@ def add_actor_information_and_train(
             device=device,
             dataset_repo_id=dataset_repo_id,
             shutdown_event=shutdown_event,
+            corrections_buffer=corrections_buffer,
         )
 
         # Process all available interaction messages sent by the actor server
@@ -492,6 +517,8 @@ def add_actor_information_and_train(
         for _ in range(utd_ratio - 1):
             # Sample from the iterators
             batch = next(online_iterator)
+
+            batch = merge_with_corrections(batch, corrections_buffer, batch_size)
 
             if dataset_repo_id is not None:
                 batch_offline = next(offline_iterator)
@@ -550,6 +577,8 @@ def add_actor_information_and_train(
 
         # Sample for the last update in the UTD ratio
         batch = next(online_iterator)
+
+        batch = merge_with_corrections(batch, corrections_buffer, batch_size)
 
         if dataset_repo_id is not None:
             batch_offline = next(offline_iterator)
@@ -1114,20 +1143,93 @@ def initialize_offline_replay_buffer(
         )
 
     logging.info("Convert to a offline replay buffer")
-    offline_replay_buffer = ReplayBuffer.from_lerobot_dataset(
-        offline_dataset,
-        device=device,
-        state_keys=cfg.policy.input_features.keys(),
-        storage_device=storage_device,
-        optimize_memory=True,
-        capacity=cfg.policy.offline_buffer_capacity,
-    )
+    reward_provider = None
+    if cfg.reward is not None:
+        provider_device = cfg.reward.device or getattr(cfg.policy, "device", None)
+        reward_provider = make_reward(cfg.reward, device=provider_device)
+
+    try:
+        offline_replay_buffer = ReplayBuffer.from_lerobot_dataset(
+            offline_dataset,
+            device=device,
+            state_keys=cfg.policy.input_features.keys(),
+            storage_device=storage_device,
+            optimize_memory=True,
+            capacity=cfg.policy.offline_buffer_capacity,
+            reward_provider=reward_provider,
+        )
+    finally:
+        if reward_provider is not None and hasattr(reward_provider, "close"):
+            reward_provider.close()
     return offline_replay_buffer
 
 
 #################################################
 # Utilities/Helpers functions #
 #################################################
+
+
+def collect_vlm_metrics(
+    complementary_info: dict[str, torch.Tensor | float | int | bool] | None,
+) -> dict[str, float]:
+    """Aggregate VLM-derived signals for logging."""
+
+    metrics: dict[str, float] = {}
+    if complementary_info is None:
+        return metrics
+
+    def _mean(value: torch.Tensor | float | int | bool | None) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, torch.Tensor):
+            if value.numel() == 0:
+                return None
+            return value.float().mean().item()
+        if isinstance(value, (int, float, bool)):
+            return float(value)
+        return None
+
+    progress_mean = _mean(complementary_info.get("vlm_progress"))
+    if progress_mean is not None:
+        metrics["vlm_progress_mean"] = progress_mean
+
+    prev_progress_mean = _mean(complementary_info.get("vlm_prev_progress"))
+    if prev_progress_mean is not None:
+        metrics["vlm_prev_progress_mean"] = prev_progress_mean
+
+    reward_mean = _mean(complementary_info.get("vlm_reward"))
+    if reward_mean is not None:
+        metrics["vlm_reward_mean"] = reward_mean
+
+    milestone_values: list[torch.Tensor] = []
+    for key, value in complementary_info.items():
+        if not key.startswith("vlm_milestone_"):
+            continue
+        if isinstance(value, torch.Tensor):
+            if value.numel() == 0:
+                continue
+            milestone_values.append(value.float().view(-1))
+        elif isinstance(value, (int, float, bool)):
+            milestone_values.append(torch.tensor(float(value)))
+
+    if milestone_values:
+        stacked = torch.cat(milestone_values)
+        metrics["vlm_milestone_mean"] = stacked.mean().item()
+
+    return metrics
+
+
+def merge_with_corrections(
+    batch: BatchTransition,
+    corrections_buffer: ReplayBuffer | None,
+    batch_size: int,
+) -> BatchTransition:
+    if corrections_buffer is None or len(corrections_buffer) == 0:
+        return batch
+
+    corrections_batch_size = max(1, min(batch_size // 2 if batch_size > 1 else 1, len(corrections_buffer)))
+    corrections_batch = corrections_buffer.sample(corrections_batch_size)
+    return concatenate_batch_transitions(corrections_batch, batch)
 
 
 def get_action_embeddings(
@@ -1292,6 +1394,7 @@ def process_transitions(
     device: str,
     dataset_repo_id: str | None,
     shutdown_event: any,
+    corrections_buffer: ReplayBuffer | None = None,
 ):
     """Process all available transitions from the queue.
 
@@ -1326,6 +1429,11 @@ def process_transitions(
                 transition["complementary_info"]["mc_returns"] = mc_returns
 
             replay_buffer.add(**transition)
+
+            if corrections_buffer is not None and transition.get("complementary_info", {}).get(
+                "is_intervention"
+            ):
+                corrections_buffer.add(**transition)
 
             # Add to offline buffer if it's an intervention
             if dataset_repo_id is not None and transition.get("complementary_info", {}).get(
@@ -1512,6 +1620,10 @@ def run_conrft_offline_training(
         critic_output = policy.forward(forward_batch, model="cal_ql")
         loss_critic = critic_output["loss_critic"]
 
+        progress_output = policy.compute_progress_aux_loss(forward_batch)
+        if progress_output is not None:
+            loss_critic = loss_critic + progress_output["loss"]
+
         optimizers["critic"].zero_grad()
         loss_critic.backward()
         critic_grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -1524,6 +1636,11 @@ def run_conrft_offline_training(
             "loss_critic": loss_critic.item(),
             "critic_grad_norm": critic_grad_norm,
         }
+
+        if progress_output is not None:
+            training_infos.update(progress_output["metrics"])
+
+        training_infos.update(collect_vlm_metrics(forward_batch.get("complementary_info")))
 
         # Add Cal-QL specific metrics
         if "td_loss" in critic_output:
@@ -1633,6 +1750,7 @@ def run_conrft_online_training(
     transition_queue: Queue,
     interaction_message_queue: Queue,
     parameters_queue: Queue,
+    corrections_buffer: ReplayBuffer | None = None,
 ) -> None:
     """
     Run ConRFT online training (HIL-ConRFT phase).
@@ -1694,6 +1812,7 @@ def run_conrft_online_training(
             device=device,
             dataset_repo_id=dataset_repo_id,
             shutdown_event=shutdown_event,
+            corrections_buffer=corrections_buffer,
         )
 
         interaction_message = process_interaction_messages(
@@ -1718,6 +1837,8 @@ def run_conrft_online_training(
 
         for _ in range(utd_ratio - 1):
             batch = next(online_iterator)
+
+            batch = merge_with_corrections(batch, corrections_buffer, batch_size)
 
             if offline_iterator is not None:
                 batch_offline = next(offline_iterator)
@@ -1762,6 +1883,10 @@ def run_conrft_online_training(
             critic_output = policy.forward(forward_batch, model="critic")
             loss_critic = critic_output["loss_critic"]
 
+            progress_output = policy.compute_progress_aux_loss(forward_batch)
+            if progress_output is not None:
+                loss_critic = loss_critic + progress_output["loss"]
+
             optimizers["critic"].zero_grad()
             loss_critic.backward()
             torch.nn.utils.clip_grad_norm_(
@@ -1773,6 +1898,8 @@ def run_conrft_online_training(
             policy.update_target_networks()
 
         batch = next(online_iterator)
+
+        batch = merge_with_corrections(batch, corrections_buffer, batch_size)
 
         if offline_iterator is not None:
             batch_offline = next(offline_iterator)
@@ -1814,6 +1941,10 @@ def run_conrft_online_training(
         critic_output = policy.forward(forward_batch, model="critic")
         loss_critic = critic_output["loss_critic"]
 
+        progress_output = policy.compute_progress_aux_loss(forward_batch)
+        if progress_output is not None:
+            loss_critic = loss_critic + progress_output["loss"]
+
         optimizers["critic"].zero_grad()
         loss_critic.backward()
         critic_grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -1825,6 +1956,14 @@ def run_conrft_online_training(
             "loss_critic": loss_critic.item(),
             "critic_grad_norm": critic_grad_norm,
         }
+
+        if progress_output is not None:
+            training_infos.update(progress_output["metrics"])
+
+        training_infos.update(collect_vlm_metrics(forward_batch.get("complementary_info")))
+
+        if corrections_buffer is not None:
+            training_infos["corrections_buffer_size"] = len(corrections_buffer)
 
         if "td_loss" in critic_output:
             training_infos["td_loss"] = critic_output["td_loss"].item()

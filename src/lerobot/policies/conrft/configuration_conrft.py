@@ -205,6 +205,11 @@ class ConRFTConfig(PreTrainedConfig):
     utd_ratio: int = 2
     grad_clip_norm: float = 10.0
 
+    # Dense reward auxiliary losses
+    use_vlm_progress: bool = True
+    progress_loss_weight: float = 0.1
+    progress_delta_loss_weight: float = 0.05
+
     actor_lr: float = 3e-4
     critic_lr: float = 3e-4
 
