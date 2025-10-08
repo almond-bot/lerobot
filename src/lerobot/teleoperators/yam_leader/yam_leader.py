@@ -63,8 +63,8 @@ class YAMLeader(Teleoperator):
     def is_connected(self) -> bool:
         return (
             self.robot is not None
-            and hasattr(self.robot.motor_chain, "running")
-            and self.robot.motor_chain.running
+            and hasattr(self.robot._motor_chain, "running")
+            and self.robot._motor_chain.running
         )
 
     def connect(self, calibrate: bool = True) -> None:
