@@ -16,7 +16,8 @@
 
 from dataclasses import dataclass, field
 
-from i2rt.i2rt.robots.utils import GripperType
+from i2rt.robots.utils import GripperType
+
 from lerobot.cameras import CameraConfig
 
 from ..config import RobotConfig

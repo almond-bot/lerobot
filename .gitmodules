@@ -1,4 +1,0 @@
-[submodule "i2rt"]
-	path = i2rt
-	url = https://github.com/almond-bot/i2rt
-	branch = main
