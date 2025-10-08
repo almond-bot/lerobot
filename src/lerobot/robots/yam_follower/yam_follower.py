@@ -20,7 +20,7 @@ from functools import cached_property
 from typing import Any
 
 import numpy as np
-from i2rt.lerobot.helper import (
+from i2rt.lerobot.helpers import (
     YAM_ARM_MOTOR_NAMES,
     denormalize_arm_position,
     denormalize_gripper_position,
