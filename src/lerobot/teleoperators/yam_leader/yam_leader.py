@@ -77,9 +77,8 @@ class YAMLeader(Teleoperator):
             )
         )
 
-        # Cache joint limits
-        robot_info = self.robot._robot.get_robot_info()
-        self.joint_limits = robot_info["joint_limits"]  # Shape: (6, 2) for 6 arm joints in radians
+        # Cache joint limits directly from the robot object (avoids buggy get_robot_info())
+        self.joint_limits = self.robot._robot._joint_limits  # Shape: (6, 2) for 6 arm joints in radians
 
         logger.info(f"{self} connected.")
 
