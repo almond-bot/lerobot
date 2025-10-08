@@ -20,16 +20,16 @@ from functools import cached_property
 from typing import Any
 
 import numpy as np
-
-from i2rt.i2rt.robots.get_robot import get_yam_robot
-from i2rt.i2rt.robots.motor_chain_robot import MotorChainRobot
-from i2rt.lerobot_helper import (
+from i2rt.lerobot.helper import (
     YAM_ARM_MOTOR_NAMES,
     denormalize_arm_position,
     denormalize_gripper_position,
     normalize_arm_position,
     normalize_gripper_position,
 )
+from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.motor_chain_robot import MotorChainRobot
+
 from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 

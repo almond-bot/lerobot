@@ -18,14 +18,14 @@ import logging
 import time
 
 import numpy as np
-
-from i2rt.i2rt.robots.get_robot import get_yam_robot
-from i2rt.lerobot_helper import (
+from i2rt.lerobot.helpers import (
     YAM_ARM_MOTOR_NAMES,
+    YAMLeaderRobot,
     normalize_arm_position,
     normalize_gripper_position,
 )
-from i2rt.scripts.minimum_gello import YAMLeaderRobot
+from i2rt.robots.get_robot import get_yam_robot
+
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 from ..teleoperator import Teleoperator
