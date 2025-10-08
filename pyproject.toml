@@ -117,6 +117,7 @@ phone = ["hebi-py>=2.8.0,<2.12.0", "teleop>=0.1.0,<0.2.0"]
 #     "pyrender @ git+https://github.com/mmatl/pyrender.git ; sys_platform == 'linux'",
 #     "pyrealsense2>=2.55.1.6486 ; sys_platform != 'darwin'"
 # ] # TODO: Currently not supported
+yam = ["numpy >= 2.2.6", "i2rt @ git+https://github.com/almond-bot/i2rt@main"]
 
 # Policies
 pi = ["transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi"]
