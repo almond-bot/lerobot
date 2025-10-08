@@ -25,6 +25,7 @@ from i2rt.lerobot.helpers import (
     normalize_gripper_position,
 )
 from i2rt.robots.get_robot import get_yam_robot
+from i2rt.robots.utils import GripperType
 
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
@@ -72,7 +73,7 @@ class YAMLeader(Teleoperator):
 
         self.robot = YAMLeaderRobot(
             get_yam_robot(
-                channel=self.config.port, gripper_type=self.config.gripper_type, zero_gravity_mode=False
+                channel=self.config.port, gripper_type=GripperType.YAM_TEACHING_HANDLE, zero_gravity_mode=True
             )
         )
 
