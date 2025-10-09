@@ -165,6 +165,18 @@ class Robot(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_current(self) -> dict[str, Any]:
+        """
+        Retrieve the current of the robot.
+
+        Returns:
+            dict[str, Any]: A flat dictionary representing the robot's motor currents. Its structure
+                should match :pymeth:`observation_features`.
+        """
+
+        pass
+
+    @abc.abstractmethod
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         """
         Send an action command to the robot.

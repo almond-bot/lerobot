@@ -190,6 +190,15 @@ class SO101Follower(Robot):
 
         return obs_dict
 
+    def get_current(self) -> dict[str, Any]:
+        if not self.is_connected:
+            raise DeviceNotConnectedError(f"{self} is not connected.")
+
+        cur_dict = self.bus.sync_read("Present_Current")
+        cur_dict = {f"{motor}.cur": val for motor, val in cur_dict.items()}
+
+        return cur_dict
+
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         """Command arm to move to a target joint configuration.
 

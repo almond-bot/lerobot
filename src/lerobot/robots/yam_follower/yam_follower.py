@@ -164,6 +164,12 @@ class YAMFollower(Robot):
 
         return obs_dict
 
+    def get_current(self) -> dict[str, Any]:
+        if not self.is_connected:
+            raise DeviceNotConnectedError(f"{self} is not connected.")
+
+        pass
+
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         """Command arm to move to a target joint configuration.
 
