@@ -79,6 +79,10 @@ class YAMFollower(Robot):
     def motor_names(self) -> list[str]:
         return YAM_ARM_MOTOR_NAMES
 
+    @cached_property
+    def kinematics_joint_names(self) -> list[str]:
+        return YAM_ARM_MOTOR_NAMES[:-1]
+
     @property
     def is_connected(self) -> bool:
         robot_is_connected = (

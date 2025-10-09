@@ -82,6 +82,10 @@ class SO101Follower(Robot):
     def motor_names(self) -> list[str]:
         return list(self.bus.motors.keys())
 
+    @cached_property
+    def kinematics_joint_names(self) -> list[str]:
+        return list(self.bus.motors.keys())
+
     @property
     def is_connected(self) -> bool:
         return self.bus.is_connected and all(cam.is_connected for cam in self.cameras.values())

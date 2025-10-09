@@ -151,7 +151,6 @@ class RobotEnv(gym.Env):
         self.current_step = 0
         self.episode_data = None
 
-        self._joint_names = [f"{key}.pos" for key in self.robot.motor_names]
         self._image_keys = self.robot.cameras.keys()
 
         self.reset_pose = reset_pose
@@ -393,7 +392,7 @@ def make_processors(
 
     # Full processor pipeline for real robot environment
     # Get robot and motor information for kinematics
-    motor_names = env.robot.motor_names
+    motor_names = env.robot.kinematics_joint_names
 
     # Set up kinematics solver if inverse kinematics is configured
     kinematics_solver = None

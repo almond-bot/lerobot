@@ -66,6 +66,14 @@ class Robot(abc.ABC):
         """
         pass
 
+    @property
+    @abc.abstractmethod
+    def kinematics_joint_names(self) -> list[str]:
+        """
+        The names of the joints in the robot's kinematics.
+        """
+        pass
+
     # TODO(aliberts): create a proper Feature class for this that links with datasets
     @property
     @abc.abstractmethod
