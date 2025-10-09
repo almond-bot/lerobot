@@ -75,6 +75,10 @@ class YAMFollower(Robot):
     def action_features(self) -> dict[str, type]:
         return self._motors_ft
 
+    @cached_property
+    def num_motors(self) -> int:
+        return len(YAM_ARM_MOTOR_NAMES)
+
     @property
     def is_connected(self) -> bool:
         robot_is_connected = (

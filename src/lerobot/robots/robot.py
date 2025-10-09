@@ -58,6 +58,14 @@ class Robot(abc.ABC):
     def __str__(self) -> str:
         return f"{self.id} {self.__class__.__name__}"
 
+    @property
+    @abc.abstractmethod
+    def num_motors(self) -> int:
+        """
+        The number of motors in the robot.
+        """
+        pass
+
     # TODO(aliberts): create a proper Feature class for this that links with datasets
     @property
     @abc.abstractmethod
@@ -173,7 +181,6 @@ class Robot(abc.ABC):
             dict[str, Any]: A flat dictionary representing the robot's motor currents. Its structure
                 should match :pymeth:`observation_features`.
         """
-
         pass
 
     @abc.abstractmethod

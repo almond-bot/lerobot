@@ -199,9 +199,7 @@ class MotorCurrentProcessorStep(ObservationProcessorStep):
         if OBS_STATE in features[PipelineFeatureType.OBSERVATION] and self.robot is not None:
             original_feature = features[PipelineFeatureType.OBSERVATION][OBS_STATE]
             # Add motor current dimensions to the original state shape
-            num_motors = 0
-            if hasattr(self.robot, "bus") and hasattr(self.robot.bus, "motors"):  # type: ignore[attr-defined]
-                num_motors = len(self.robot.bus.motors)  # type: ignore[attr-defined]
+            num_motors = self.robot.num_motors
 
             if num_motors > 0:
                 new_shape = (original_feature.shape[0] + num_motors,) + original_feature.shape[1:]

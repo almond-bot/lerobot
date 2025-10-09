@@ -78,6 +78,10 @@ class SO101Follower(Robot):
     def action_features(self) -> dict[str, type]:
         return self._motors_ft
 
+    @cached_property
+    def num_motors(self) -> int:
+        return len(self.bus.motors)
+
     @property
     def is_connected(self) -> bool:
         return self.bus.is_connected and all(cam.is_connected for cam in self.cameras.values())
