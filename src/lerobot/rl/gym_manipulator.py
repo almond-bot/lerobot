@@ -115,7 +115,7 @@ def reset_follower_position(robot_arm: Robot, target_position: np.ndarray) -> No
     for pose in trajectory:
         action_dict = dict(zip(motor_keys, pose, strict=False))
         robot_arm.send_action(action_dict)
-        busy_wait(0.015)
+        busy_wait(0.015 * 2)
 
 
 class RobotEnv(gym.Env):
