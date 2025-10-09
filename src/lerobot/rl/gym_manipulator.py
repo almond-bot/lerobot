@@ -56,6 +56,7 @@ from lerobot.robots import (  # noqa: F401
     RobotConfig,
     make_robot_from_config,
     so100_follower,
+    yam_follower,
 )
 from lerobot.robots.robot import Robot
 from lerobot.robots.so100_follower.robot_kinematic_processor import (
@@ -70,6 +71,7 @@ from lerobot.teleoperators import (
     keyboard,  # noqa: F401
     make_teleoperator_from_config,
     so101_leader,  # noqa: F401
+    yam_leader,  # noqa: F401
 )
 from lerobot.teleoperators.teleoperator import Teleoperator
 from lerobot.teleoperators.utils import TeleopEvents
