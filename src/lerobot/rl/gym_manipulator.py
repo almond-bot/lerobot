@@ -392,7 +392,8 @@ def make_processors(
 
     # Full processor pipeline for real robot environment
     # Get robot and motor information for kinematics
-    motor_names = env.robot.kinematics_joint_names
+    motor_names = env.robot.motor_names
+    kinematics_joint_names = env.robot.kinematics_joint_names
 
     # Set up kinematics solver if inverse kinematics is configured
     kinematics_solver = None
@@ -400,7 +401,7 @@ def make_processors(
         kinematics_solver = RobotKinematics(
             urdf_path=cfg.processor.inverse_kinematics.urdf_path,
             target_frame_name=cfg.processor.inverse_kinematics.target_frame_name,
-            joint_names=motor_names,
+            joint_names=kinematics_joint_names,
         )
 
     env_pipeline_steps = [VanillaObservationProcessorStep()]
@@ -415,7 +416,7 @@ def make_processors(
         env_pipeline_steps.append(
             ForwardKinematicsJointsToEEObservation(
                 kinematics=kinematics_solver,
-                motor_names=motor_names,
+                motor_names=kinematics_joint_names,
             )
         )
 
@@ -479,7 +480,7 @@ def make_processors(
             EEReferenceAndDelta(
                 kinematics=kinematics_solver,
                 end_effector_step_sizes=cfg.processor.inverse_kinematics.end_effector_step_sizes,
-                motor_names=motor_names,
+                motor_names=kinematics_joint_names,
                 use_latched_reference=False,
                 use_ik_solution=True,
             ),
@@ -492,10 +493,13 @@ def make_processors(
                 discrete_gripper=True,
             ),
             InverseKinematicsRLStep(
-                kinematics=kinematics_solver, motor_names=motor_names, initial_guess_current_joints=False
+                kinematics=kinematics_solver,
+                motor_names=kinematics_joint_names,
+                initial_guess_current_joints=False,
             ),
         ]
         action_pipeline_steps.extend(inverse_kinematics_steps)
+        # Use all motor names including gripper for the final conversion to numpy array
         action_pipeline_steps.append(RobotActionToPolicyActionProcessorStep(motor_names=motor_names))
 
     return DataProcessorPipeline(

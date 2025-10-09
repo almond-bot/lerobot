@@ -586,6 +586,11 @@ class InverseKinematicsRLStep(ProcessorStep):
             else:
                 action["gripper.pos"] = float(gripper_pos)
 
+        # Always add gripper position back, even if not in motor_names
+        # This handles robots where gripper is not part of kinematics
+        if "gripper.pos" not in action and gripper_pos is not None:
+            action["gripper.pos"] = float(gripper_pos)
+
         new_transition[TransitionKey.ACTION] = action
         complementary_data = new_transition.get(TransitionKey.COMPLEMENTARY_DATA, {})
         complementary_data["IK_solution"] = q_target
@@ -600,6 +605,13 @@ class InverseKinematicsRLStep(ProcessorStep):
 
         for name in self.motor_names:
             features[PipelineFeatureType.ACTION][f"{name}.pos"] = PolicyFeature(
+                type=FeatureType.ACTION, shape=(1,)
+            )
+
+        # Always add gripper feature, even if not in motor_names
+        # This handles robots where gripper is not part of kinematics
+        if "gripper.pos" not in features[PipelineFeatureType.ACTION]:
+            features[PipelineFeatureType.ACTION]["gripper.pos"] = PolicyFeature(
                 type=FeatureType.ACTION, shape=(1,)
             )
 
