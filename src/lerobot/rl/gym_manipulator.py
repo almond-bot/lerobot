@@ -104,16 +104,15 @@ class GymManipulatorConfig:
 
 def reset_follower_position(robot_arm: Robot, target_position: np.ndarray) -> None:
     """Reset robot arm to target position using smooth trajectory."""
-    current_position_dict = robot_arm.bus.sync_read("Present_Position")
-    current_position = np.array(
-        [current_position_dict[name] for name in current_position_dict], dtype=np.float32
-    )
+    current_position_dict = robot_arm.get_observation()
+    motor_keys = [name for name in current_position_dict if name.endswith(".pos")]
+    current_position = np.array([current_position_dict[name] for name in motor_keys], dtype=np.float32)
     trajectory = torch.from_numpy(
         np.linspace(current_position, target_position, 50)
     )  # NOTE: 30 is just an arbitrary number
     for pose in trajectory:
-        action_dict = dict(zip(current_position_dict, pose, strict=False))
-        robot_arm.bus.sync_write("Goal_Position", action_dict)
+        action_dict = dict(zip(motor_keys, pose, strict=False))
+        robot_arm.send_action(action_dict)
         busy_wait(0.015)
 
 
@@ -150,7 +149,7 @@ class RobotEnv(gym.Env):
         self.current_step = 0
         self.episode_data = None
 
-        self._joint_names = [f"{key}.pos" for key in self.robot.bus.motors]
+        self._joint_names = [f"{key}.pos" for key in self.robot.motor_names]
         self._image_keys = self.robot.cameras.keys()
 
         self.reset_pose = reset_pose
@@ -158,7 +157,7 @@ class RobotEnv(gym.Env):
 
         self.use_gripper = use_gripper
 
-        self._joint_names = list(self.robot.bus.motors.keys())
+        self._joint_names = self.robot.motor_names
         self._raw_joint_positions = None
 
         self._setup_spaces()
@@ -251,7 +250,7 @@ class RobotEnv(gym.Env):
 
     def step(self, action) -> tuple[dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:
         """Execute one environment step with given action."""
-        joint_targets_dict = {f"{key}.pos": action[i] for i, key in enumerate(self.robot.bus.motors.keys())}
+        joint_targets_dict = {f"{key}.pos": action[i] for i, key in enumerate(self.robot.motor_names)}
 
         self.robot.send_action(joint_targets_dict)
 
