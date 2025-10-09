@@ -392,7 +392,7 @@ def make_processors(
 
     # Full processor pipeline for real robot environment
     # Get robot and motor information for kinematics
-    motor_names = list(env.robot.bus.motors.keys())
+    motor_names = env.robot.motor_names
 
     # Set up kinematics solver if inverse kinematics is configured
     kinematics_solver = None

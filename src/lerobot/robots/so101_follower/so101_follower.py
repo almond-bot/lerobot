@@ -79,8 +79,8 @@ class SO101Follower(Robot):
         return self._motors_ft
 
     @cached_property
-    def num_motors(self) -> int:
-        return len(self.bus.motors)
+    def motor_names(self) -> list[str]:
+        return list(self.bus.motors.keys())
 
     @property
     def is_connected(self) -> bool:

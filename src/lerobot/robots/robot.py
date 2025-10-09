@@ -60,9 +60,9 @@ class Robot(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def num_motors(self) -> int:
+    def motor_names(self) -> list[str]:
         """
-        The number of motors in the robot.
+        The names of the motors in the robot.
         """
         pass
 
