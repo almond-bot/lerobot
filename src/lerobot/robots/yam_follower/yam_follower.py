@@ -168,7 +168,17 @@ class YAMFollower(Robot):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
-        pass
+        # Get current (eff) from robot observations
+        # In MotorInfo, the 'eff' field represents motor current
+        obs = self.robot.get_observations()
+        joint_eff = obs["joint_eff"]  # Array of current values for all motors including gripper
+
+        # Create dictionary mapping motor names to current values
+        cur_dict = {}
+        for i, motor_name in enumerate(YAM_ARM_MOTOR_NAMES):
+            cur_dict[f"{motor_name}.cur"] = float(joint_eff[i])
+
+        return cur_dict
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         """Command arm to move to a target joint configuration.
