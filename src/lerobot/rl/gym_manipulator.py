@@ -501,7 +501,7 @@ def make_processors(
             ),
             GripperVelocityToJoint(
                 clip_max=cfg.processor.max_gripper_pos,
-                speed_factor=0.25,
+                speed_factor=1.0,
                 discrete_gripper=True,
             ),
             InverseKinematicsRLStep(
