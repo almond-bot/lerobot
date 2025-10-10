@@ -240,9 +240,10 @@ class RobotEnv(gym.Env):
         if self.reset_pose is not None:
             log_say("Reset the environment.", play_sounds=True)
             reset_follower_position(self.robot, self.reset_pose)
-            log_say("Reset the environment done.", play_sounds=True)
 
         busy_wait(self.reset_time_s - (time.perf_counter() - start_time))
+
+        log_say("Reset the environment done.", play_sounds=True)
 
         super().reset(seed=seed, options=options)
 
@@ -350,6 +351,7 @@ def make_robot_env(cfg: HILSerlRobotEnvConfig) -> tuple[gym.Env, Any]:
         use_gripper=use_gripper,
         display_cameras=display_cameras,
         reset_pose=reset_pose,
+        reset_time_s=cfg.processor.reset.reset_time_s,
     )
 
     return env, teleop_device
@@ -644,6 +646,7 @@ def control_loop(
             image_writer_processes=0,
             features=features,
         )
+        log_say("Start recording.", play_sounds=True)
 
     episode_idx = 0
     episode_step = 0
