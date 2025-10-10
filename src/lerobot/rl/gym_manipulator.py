@@ -153,9 +153,6 @@ class RobotEnv(gym.Env):
         if not self.robot.is_connected:
             self.robot.connect()
 
-        if not self.teleop_device.is_connected:
-            self.teleop_device.connect()
-
         # Episode tracking.
         self.current_step = 0
         self.episode_data = None
@@ -311,7 +308,7 @@ class RobotEnv(gym.Env):
         return self._raw_joint_positions
 
 
-def make_robot_env(cfg: HILSerlRobotEnvConfig) -> gym.Env:
+def make_robot_env(cfg: HILSerlRobotEnvConfig) -> tuple[gym.Env, Teleoperator]:
     """Create robot environment from configuration.
 
     Args:
@@ -345,6 +342,7 @@ def make_robot_env(cfg: HILSerlRobotEnvConfig) -> gym.Env:
 
     robot = make_robot_from_config(cfg.robot)
     teleop_device = make_teleoperator_from_config(cfg.teleop)
+    teleop_device.connect()
 
     # Create base environment with safe defaults
     use_gripper = cfg.processor.gripper.use_gripper if cfg.processor.gripper is not None else True
@@ -362,7 +360,7 @@ def make_robot_env(cfg: HILSerlRobotEnvConfig) -> gym.Env:
         reset_time_s=cfg.processor.reset.reset_time_s,
     )
 
-    return env
+    return env, teleop_device
 
 
 def make_processors(
@@ -654,6 +652,7 @@ def control_loop(
             image_writer_processes=0,
             features=features,
         )
+        log_say("Starting episode 1 recording.", play_sounds=True)
 
     episode_idx = 0
     episode_step = 0
@@ -772,8 +771,8 @@ def replay_trajectory(
 @parser.wrap()
 def main(cfg: GymManipulatorConfig) -> None:
     """Main entry point for gym manipulator script."""
-    env = make_robot_env(cfg.env)
-    env_processor, action_processor = make_processors(env, env.teleop_device, cfg.env, cfg.device)
+    env, teleop_device = make_robot_env(cfg.env)
+    env_processor, action_processor = make_processors(env, teleop_device, cfg.env, cfg.device)
 
     print("Environment observation space:", env.observation_space)
     print("Environment action space:", env.action_space)
@@ -784,7 +783,7 @@ def main(cfg: GymManipulatorConfig) -> None:
         replay_trajectory(env, action_processor, cfg)
         exit()
 
-    control_loop(env, env_processor, action_processor, env.teleop_device, cfg)
+    control_loop(env, env_processor, action_processor, teleop_device, cfg)
 
     input("Press Enter to exit...")
     env.close()
