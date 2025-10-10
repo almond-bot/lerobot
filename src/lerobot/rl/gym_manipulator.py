@@ -657,6 +657,7 @@ def control_loop(
     episode_idx = 0
     episode_step = 0
     episode_start_time = time.perf_counter()
+    previous_frame_reward = 0
 
     while episode_idx < cfg.dataset.num_episodes_to_record:
         step_start_time = time.perf_counter()
@@ -678,6 +679,10 @@ def control_loop(
         truncated = transition.get(TransitionKey.TRUNCATED, False)
 
         if cfg.mode == "record":
+            # Reset previous frame reward at the start of each episode
+            if episode_step == 0:
+                previous_frame_reward = 0
+
             observations = {
                 k: v.squeeze(0).cpu()
                 for k, v in transition[TransitionKey.OBSERVATION].items()
@@ -687,10 +692,12 @@ def control_loop(
             action_to_record = transition[TransitionKey.COMPLEMENTARY_DATA].get(
                 "teleop_action", transition[TransitionKey.ACTION]
             )
+            # Sticky reward: 1 if current reward is 1 or previous frame's reward was 1
+            current_reward = 1 if (transition[TransitionKey.REWARD] == 1 or previous_frame_reward == 1) else 0
             frame = {
                 **observations,
                 ACTION: action_to_record.cpu(),
-                REWARD: np.array([transition[TransitionKey.REWARD]], dtype=np.float32),
+                REWARD: np.array([current_reward], dtype=np.float32),
                 DONE: np.array([terminated or truncated], dtype=bool),
             }
             if use_gripper:
@@ -700,6 +707,9 @@ def control_loop(
             if dataset is not None:
                 frame["task"] = cfg.dataset.task
                 dataset.add_frame(frame)
+
+            # Update previous frame reward for next iteration
+            previous_frame_reward = current_reward
 
         episode_step += 1
 
