@@ -128,6 +128,7 @@ class RobotEnv(gym.Env):
     def __init__(
         self,
         robot,
+        teleop_device,
         use_gripper: bool = False,
         display_cameras: bool = False,
         reset_pose: list[list[float]] | None = None,
@@ -145,11 +146,15 @@ class RobotEnv(gym.Env):
         super().__init__()
 
         self.robot = robot
+        self.teleop_device = teleop_device
         self.display_cameras = display_cameras
 
         # Connect to the robot if not already connected.
         if not self.robot.is_connected:
             self.robot.connect()
+
+        if not self.teleop_device.is_connected:
+            self.teleop_device.connect()
 
         # Episode tracking.
         self.current_step = 0
@@ -298,12 +303,15 @@ class RobotEnv(gym.Env):
         if self.robot.is_connected:
             self.robot.disconnect()
 
+        if self.teleop_device.is_connected:
+            self.teleop_device.disconnect()
+
     def get_raw_joint_positions(self) -> dict[str, float]:
         """Get raw joint positions."""
         return self._raw_joint_positions
 
 
-def make_robot_env(cfg: HILSerlRobotEnvConfig) -> tuple[gym.Env, Any]:
+def make_robot_env(cfg: HILSerlRobotEnvConfig) -> gym.Env:
     """Create robot environment from configuration.
 
     Args:
@@ -337,7 +345,6 @@ def make_robot_env(cfg: HILSerlRobotEnvConfig) -> tuple[gym.Env, Any]:
 
     robot = make_robot_from_config(cfg.robot)
     teleop_device = make_teleoperator_from_config(cfg.teleop)
-    teleop_device.connect()
 
     # Create base environment with safe defaults
     use_gripper = cfg.processor.gripper.use_gripper if cfg.processor.gripper is not None else True
@@ -348,13 +355,14 @@ def make_robot_env(cfg: HILSerlRobotEnvConfig) -> tuple[gym.Env, Any]:
 
     env = RobotEnv(
         robot=robot,
+        teleop_device=teleop_device,
         use_gripper=use_gripper,
         display_cameras=display_cameras,
         reset_pose=reset_pose,
         reset_time_s=cfg.processor.reset.reset_time_s,
     )
 
-    return env, teleop_device
+    return env
 
 
 def make_processors(
@@ -646,7 +654,6 @@ def control_loop(
             image_writer_processes=0,
             features=features,
         )
-        log_say("Start recording.", play_sounds=True)
 
     episode_idx = 0
     episode_step = 0
@@ -723,6 +730,9 @@ def control_loop(
             transition = create_transition(observation=obs, info=info)
             transition = env_processor(transition)
 
+            if episode_idx < cfg.dataset.num_episodes_to_record:
+                log_say(f"Starting episode {episode_idx + 1} recording.", play_sounds=True)
+
         # Maintain fps timing
         busy_wait(dt - (time.perf_counter() - step_start_time))
 
@@ -762,8 +772,8 @@ def replay_trajectory(
 @parser.wrap()
 def main(cfg: GymManipulatorConfig) -> None:
     """Main entry point for gym manipulator script."""
-    env, teleop_device = make_robot_env(cfg.env)
-    env_processor, action_processor = make_processors(env, teleop_device, cfg.env, cfg.device)
+    env = make_robot_env(cfg.env)
+    env_processor, action_processor = make_processors(env, env.teleop_device, cfg.env, cfg.device)
 
     print("Environment observation space:", env.observation_space)
     print("Environment action space:", env.action_space)
@@ -774,7 +784,10 @@ def main(cfg: GymManipulatorConfig) -> None:
         replay_trajectory(env, action_processor, cfg)
         exit()
 
-    control_loop(env, env_processor, action_processor, teleop_device, cfg)
+    control_loop(env, env_processor, action_processor, env.teleop_device, cfg)
+
+    input("Press Enter to exit...")
+    env.close()
 
 
 if __name__ == "__main__":
