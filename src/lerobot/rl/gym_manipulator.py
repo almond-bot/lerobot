@@ -104,18 +104,22 @@ class GymManipulatorConfig:
     device: str = "cpu"
 
 
-def reset_follower_position(robot_arm: Robot, target_position: np.ndarray) -> None:
+def reset_follower_position(robot_arm: Robot, target_position: list[list[float]]) -> None:
     """Reset robot arm to target position using smooth trajectory."""
-    current_position_dict = robot_arm.get_observation()
-    motor_keys = [name for name in current_position_dict if name.endswith(".pos")]
-    current_position = np.array([current_position_dict[name] for name in motor_keys], dtype=np.float32)
-    trajectory = torch.from_numpy(
-        np.linspace(current_position, target_position, 50)
-    )  # NOTE: 30 is just an arbitrary number
-    for pose in trajectory:
-        action_dict = dict(zip(motor_keys, pose, strict=False))
-        robot_arm.send_action(action_dict)
-        busy_wait(0.015 * 2)
+    for target_pose in target_position:
+        target_pose = np.array(target_pose)
+        current_position_dict = robot_arm.get_observation()
+
+        motor_keys = [name for name in current_position_dict if name.endswith(".pos")]
+        current_position = np.array([current_position_dict[name] for name in motor_keys], dtype=np.float32)
+        trajectory = torch.from_numpy(
+            np.linspace(current_position, target_pose, 50)
+        )  # NOTE: 50 is just an arbitrary number
+
+        for pose in trajectory:
+            action_dict = dict(zip(motor_keys, pose, strict=False))
+            robot_arm.send_action(action_dict)
+            busy_wait(0.015 * 2)
 
 
 class RobotEnv(gym.Env):
@@ -126,7 +130,7 @@ class RobotEnv(gym.Env):
         robot,
         use_gripper: bool = False,
         display_cameras: bool = False,
-        reset_pose: list[float] | None = None,
+        reset_pose: list[list[float]] | None = None,
         reset_time_s: float = 5.0,
     ) -> None:
         """Initialize robot environment with configuration options.
@@ -235,7 +239,7 @@ class RobotEnv(gym.Env):
         start_time = time.perf_counter()
         if self.reset_pose is not None:
             log_say("Reset the environment.", play_sounds=True)
-            reset_follower_position(self.robot, np.array(self.reset_pose))
+            reset_follower_position(self.robot, self.reset_pose)
             log_say("Reset the environment done.", play_sounds=True)
 
         busy_wait(self.reset_time_s - (time.perf_counter() - start_time))
