@@ -452,11 +452,6 @@ def concatenate_video_files(
                 template=input_stream, opaque=True
             )
 
-    # Track timestamp offset per stream to ensure monotonically increasing timestamps
-    # when concatenating multiple videos
-    stream_offset = {}
-    stream_last_dts = {}
-
     # Demux + remux packets (no re-encode)
     for packet in input_container.demux():
         # Skip packets from un-mapped streams
@@ -468,32 +463,6 @@ def concatenate_video_files(
             continue
 
         output_stream = stream_map[packet.stream.index]
-        stream_idx = packet.stream.index
-
-        # Initialize offset tracking for this stream if not seen before
-        if stream_idx not in stream_offset:
-            stream_offset[stream_idx] = 0
-            stream_last_dts[stream_idx] = -1
-
-        # Calculate what the adjusted DTS would be
-        adjusted_dts = packet.dts + stream_offset[stream_idx]
-
-        # Check if DTS went backwards (indicates a new video segment in concat demuxer)
-        # If so, we need to increase the offset to make timestamps continuous
-        if adjusted_dts <= stream_last_dts[stream_idx]:
-            # Increase offset so that current packet starts right after the last one
-            # Add 1 to ensure strictly monotonically increasing timestamps
-            stream_offset[stream_idx] = stream_last_dts[stream_idx] + 1 - packet.dts
-            adjusted_dts = packet.dts + stream_offset[stream_idx]
-
-        # Apply offset to both DTS and PTS to maintain continuity
-        packet.dts = adjusted_dts
-        if packet.pts is not None:
-            packet.pts = packet.pts + stream_offset[stream_idx]
-
-        # Track the last DTS we've seen for this stream
-        stream_last_dts[stream_idx] = packet.dts
-
         packet.stream = output_stream
         output_container.mux(packet)
 
