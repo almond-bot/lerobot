@@ -203,11 +203,16 @@ class Classifier(PreTrainedPolicy):
     def _get_encoder_output(self, x: torch.Tensor, image_key: str) -> torch.Tensor:
         """Extract the appropriate output from the encoder."""
         with torch.no_grad():
+            # Ensure input is on the same device as the model
             if self.is_cnn:
                 # The HF ResNet applies pooling internally
+                device = next(self.encoders[image_key].parameters()).device
+                x = x.to(device)
                 outputs = self.encoders[image_key](x)
                 return outputs
             else:  # Transformer models
+                device = next(self.encoder.parameters()).device
+                x = x.to(device)
                 outputs = self.encoder(x)
                 return outputs.last_hidden_state[:, 0, :]
 
