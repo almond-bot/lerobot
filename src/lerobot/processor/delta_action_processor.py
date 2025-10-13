@@ -30,10 +30,10 @@ class MapTensorToDeltaActionDictStep(ActionProcessorStep):
 
     This step is typically used after a policy outputs a continuous action vector.
     It decomposes the vector into named components for delta movements of the
-    end-effector (x, y, z) and optionally the gripper.
+    end-effector (x, y, z, rx, ry, rz) and optionally the gripper.
 
     Attributes:
-        use_gripper: If True, assumes the 4th element of the tensor is the
+        use_gripper: If True, assumes the 7th element of the tensor is the
                      gripper action.
     """
 
@@ -46,20 +46,22 @@ class MapTensorToDeltaActionDictStep(ActionProcessorStep):
         if action.dim() > 1:
             action = action.squeeze(0)
 
-        # TODO (maractingi): add rotation
         delta_action = {
             "delta_x": action[0].item(),
             "delta_y": action[1].item(),
             "delta_z": action[2].item(),
+            "delta_rx": action[3].item(),
+            "delta_ry": action[4].item(),
+            "delta_rz": action[5].item(),
         }
         if self.use_gripper:
-            delta_action["gripper"] = action[3].item()
+            delta_action["gripper"] = action[6].item()
         return delta_action
 
     def transform_features(
         self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
     ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
-        for axis in ["x", "y", "z"]:
+        for axis in ["x", "y", "z", "rx", "ry", "rz"]:
             features[PipelineFeatureType.ACTION][f"delta_{axis}"] = PolicyFeature(
                 type=FeatureType.ACTION, shape=(1,)
             )
@@ -97,6 +99,9 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
         delta_x = action.pop("delta_x")
         delta_y = action.pop("delta_y")
         delta_z = action.pop("delta_z")
+        delta_rx = action.pop("delta_rx")
+        delta_ry = action.pop("delta_ry")
+        delta_rz = action.pop("delta_rz")
         gripper = action.pop("gripper")
 
         # Determine if the teleoperator is actively providing input
@@ -109,11 +114,10 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
         scaled_delta_y = delta_y * self.position_scale
         scaled_delta_z = delta_z * self.position_scale
 
-        # For gamepad/keyboard, we don't have rotation input, so set to 0
-        # These could be extended in the future for more sophisticated teleoperators
-        target_wx = 0.0
-        target_wy = 0.0
-        target_wz = 0.0
+        # Use rotation deltas from policy output
+        target_wx = delta_rx
+        target_wy = delta_ry
+        target_wz = delta_rz
 
         # Update action with robot target format
         action = {
@@ -132,7 +136,7 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
     def transform_features(
         self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
     ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
-        for axis in ["x", "y", "z", "gripper"]:
+        for axis in ["x", "y", "z", "rx", "ry", "rz", "gripper"]:
             features[PipelineFeatureType.ACTION].pop(f"delta_{axis}", None)
 
         for feat in ["enabled", "target_x", "target_y", "target_z", "target_wx", "target_wy", "target_wz"]:

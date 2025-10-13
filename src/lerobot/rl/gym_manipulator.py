@@ -207,7 +207,7 @@ class RobotEnv(gym.Env):
         self.observation_space = gym.spaces.Dict(observation_spaces)
 
         # Define the action space for joint positions along with setting an intervention flag.
-        action_dim = 3
+        action_dim = 6
         bounds = {}
         bounds["min"] = -np.ones(action_dim)
         bounds["max"] = np.ones(action_dim)
@@ -663,7 +663,7 @@ def control_loop(
         step_start_time = time.perf_counter()
 
         # Create a neutral action (no movement)
-        neutral_action = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32)
+        neutral_action = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
         if use_gripper:
             neutral_action = torch.cat([neutral_action, torch.tensor([1.0])])  # Gripper stay
 
