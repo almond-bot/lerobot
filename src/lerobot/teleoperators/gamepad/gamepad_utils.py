@@ -244,13 +244,13 @@ class GamepadController(InputController):
 
         for event in pygame.event.get():
             if event.type == pygame.JOYBUTTONDOWN:
-                if event.button == 3:
+                if event.button == 0:
                     self.episode_end_status = TeleopEvents.SUCCESS
                 # A button (1) for failure
                 elif event.button == 1:
                     self.episode_end_status = TeleopEvents.FAILURE
                 # X button (0) for rerecord
-                elif event.button == 0:
+                elif event.button == 3:
                     self.episode_end_status = TeleopEvents.RERECORD_EPISODE
 
             # Reset episode status on button release
@@ -283,7 +283,7 @@ class GamepadController(InputController):
             x_input = self.joystick.get_axis(1)  # Left/Right
 
             # Right stick Y (typically axis 3 or 4)
-            z_input = self.joystick.get_axis(3)  # Up/Down for Z
+            z_input = self.joystick.get_axis(4)  # Up/Down for Z
 
             # Apply deadzone to avoid drift
             x_input = 0 if abs(x_input) < self.deadzone else x_input
