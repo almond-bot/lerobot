@@ -150,6 +150,17 @@ class Teleoperator(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_teleop_events(self) -> dict[str, Any]:
+        """
+        Retrieve the current teleop events from the teleoperator.
+
+        Returns:
+            dict[str, Any]: A flat dictionary representing the teleoperator's current events. Its
+                structure should match :pymeth:`teleop_events_features`.
+        """
+        pass
+
+    @abc.abstractmethod
     def get_action(self) -> dict[str, Any]:
         """
         Retrieve the current action from the teleoperator.

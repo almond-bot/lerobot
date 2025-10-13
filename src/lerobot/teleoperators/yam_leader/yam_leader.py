@@ -29,7 +29,9 @@ from i2rt.robots.utils import GripperType
 
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
+from ..gamepad.gamepad_utils import GamepadController
 from ..teleoperator import Teleoperator
+from ..utils import TeleopEvents
 from .config_yam_leader import YAMLeaderConfig
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,7 @@ class YAMLeader(Teleoperator):
         super().__init__(config)
         self.config = config
         self.robot: YAMLeaderRobot | None = None
+        self.gamepad = None
 
         # Joint info (initialized in connect)
         self.joint_limits: np.ndarray | None = None
@@ -79,6 +82,9 @@ class YAMLeader(Teleoperator):
 
         # Cache joint limits directly from the robot object (avoids buggy get_robot_info())
         self.joint_limits = self.robot._robot._joint_limits  # Shape: (6, 2) for 6 arm joints in radians
+
+        self.gamepad = GamepadController()
+        self.gamepad.start()
 
         logger.info(f"{self} connected.")
 
@@ -125,6 +131,53 @@ class YAMLeader(Teleoperator):
 
         return action
 
+    def get_teleop_events(self) -> dict[str, bool]:
+        """
+        Get teleop events from the gamepad controller.
+
+        Gamepad button mapping:
+        - RB button: Intervention flag
+        - Y/Triangle button: Success (end episode successfully)
+        - X/Square button: Failure (end episode as failure)
+        - A/Cross button: Rerecord episode
+
+        Returns:
+            Dictionary containing:
+                - TeleopEvents.IS_INTERVENTION: bool - Whether human is currently intervening
+                - TeleopEvents.TERMINATE_EPISODE: bool - Whether to terminate the current episode
+                - TeleopEvents.SUCCESS: bool - Whether the episode was successful
+                - TeleopEvents.RERECORD_EPISODE: bool - Whether to rerecord the episode
+        """
+        if self.gamepad is None:
+            return {
+                TeleopEvents.IS_INTERVENTION: False,
+                TeleopEvents.TERMINATE_EPISODE: False,
+                TeleopEvents.SUCCESS: False,
+                TeleopEvents.RERECORD_EPISODE: False,
+            }
+
+        # Update gamepad state to get fresh inputs
+        self.gamepad.update()
+
+        # Check if intervention is active
+        is_intervention = self.gamepad.should_intervene()
+
+        # Get episode end status
+        episode_end_status = self.gamepad.get_episode_end_status()
+        terminate_episode = episode_end_status in [
+            TeleopEvents.RERECORD_EPISODE,
+            TeleopEvents.FAILURE,
+        ]
+        success = episode_end_status == TeleopEvents.SUCCESS
+        rerecord_episode = episode_end_status == TeleopEvents.RERECORD_EPISODE
+
+        return {
+            TeleopEvents.IS_INTERVENTION: is_intervention,
+            TeleopEvents.TERMINATE_EPISODE: terminate_episode,
+            TeleopEvents.SUCCESS: success,
+            TeleopEvents.RERECORD_EPISODE: rerecord_episode,
+        }
+
     def send_feedback(self, feedback: dict[str, float]) -> None:
         raise NotImplementedError
 
@@ -132,6 +185,12 @@ class YAMLeader(Teleoperator):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
+        # Stop gamepad controller
+        if self.gamepad is not None:
+            self.gamepad.stop()
+            self.gamepad = None
+
+        # Close robot connection
         self.robot._robot.close()
 
         logger.info(f"{self} disconnected.")
