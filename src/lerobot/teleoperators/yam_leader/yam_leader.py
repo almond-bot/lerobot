@@ -56,7 +56,7 @@ class YAMLeader(Teleoperator):
         self.joint_limits: np.ndarray | None = None
 
         # Bilateral control
-        self.bilateral_kp: float = 0.2  # Force feedback strength (0.0 = no feedback, 1.0 = full feedback)
+        self.bilateral_kp: float = 0.1  # Force feedback strength (0.0 = no feedback, 1.0 = full feedback)
         self.leader_kp: np.ndarray | None = None  # Original kp values
         self.leader_kd: np.ndarray | None = None  # Original kd values
         self.is_intervening: bool = False
