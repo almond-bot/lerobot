@@ -501,6 +501,7 @@ def make_processors(
             LeaderJointPositionsToEEDeltasStep(
                 kinematics=kinematics_solver,
                 motor_names=kinematics_joint_names,
+                end_effector_step_sizes=cfg.processor.inverse_kinematics.end_effector_step_sizes,
             )
         )
 

@@ -240,7 +240,7 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
 
     end_effector_bounds: dict
     max_ee_step_m: float = 0.05
-    max_ee_step_rad: float = 0.1
+    max_ee_step_rad: float = 0.2
     kinematics: RobotKinematics | None = None
     motor_names: list[str] | None = None
     _last_pos: np.ndarray | None = field(default=None, init=False, repr=False)
@@ -783,6 +783,7 @@ class LeaderJointPositionsToEEDeltasStep(ProcessorStep):
     - Converts leader joints to EE pose via forward kinematics
     - Gets current follower EE pose from observation
     - Computes deltas: target_ee - current_ee
+    - Normalizes deltas by dividing by end_effector_step_sizes (so they will be properly scaled later)
     - Computes gripper delta: (target_gripper_pos - current_gripper_pos) / 100.0
       to normalize from [0, 100] scale to [-1, 1] range for policy learning
     - Outputs delta action dict compatible with the rest of the pipeline
@@ -790,10 +791,14 @@ class LeaderJointPositionsToEEDeltasStep(ProcessorStep):
     Attributes:
         kinematics: The robot's kinematic model for forward kinematics.
         motor_names: A list of motor names for which to compute joint positions.
+        end_effector_step_sizes: A dictionary scaling the delta commands. Should contain keys:
+            - "x", "y", "z" for position scaling (required)
+            - "wx", "wy", "wz" for rotation scaling (optional, defaults to 1.0)
     """
 
     kinematics: RobotKinematics
     motor_names: list[str]
+    end_effector_step_sizes: dict[str, float]
 
     def __call__(self, transition: EnvTransition) -> EnvTransition:
         """Convert leader joint positions to EE deltas."""
@@ -844,12 +849,30 @@ class LeaderJointPositionsToEEDeltasStep(ProcessorStep):
         current_rot = Rotation.from_matrix(current_ee_transform[:3, :3])
         target_rot = Rotation.from_matrix(target_ee_transform[:3, :3])
 
-        # Compute deltas
-        delta_pos = target_pos - current_pos
+        # Compute raw deltas in meters and radians
+        raw_delta_pos = target_pos - current_pos
 
         # For rotation, compute the relative rotation from current to target
         relative_rot = target_rot * current_rot.inv()
-        delta_rot = relative_rot.as_rotvec()
+        raw_delta_rot = relative_rot.as_rotvec()
+
+        # Normalize deltas by dividing by step sizes (so they will be properly scaled later by EEReferenceAndDelta)
+        # This ensures that the deltas are in the same range as gamepad inputs
+        delta_pos = np.array(
+            [
+                raw_delta_pos[0] / self.end_effector_step_sizes["x"],
+                raw_delta_pos[1] / self.end_effector_step_sizes["y"],
+                raw_delta_pos[2] / self.end_effector_step_sizes["z"],
+            ]
+        )
+
+        delta_rot = np.array(
+            [
+                raw_delta_rot[0] / self.end_effector_step_sizes["wx"],
+                raw_delta_rot[1] / self.end_effector_step_sizes["wy"],
+                raw_delta_rot[2] / self.end_effector_step_sizes["wz"],
+            ]
+        )
 
         # Compute gripper delta from current and target positions
         target_gripper_pos = teleop_action["gripper.pos"]
