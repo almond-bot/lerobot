@@ -154,9 +154,14 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
                 dtype=float,
             )
 
-            # Apply deltas directly in vector space
+            # Apply position delta directly
             desired_position = ref_position + delta_p
-            desired_rotation = ref_rotation + delta_r
+
+            # Apply rotation delta properly using rotation composition
+            r_ref = Rotation.from_rotvec(ref_rotation)
+            r_delta = Rotation.from_rotvec(delta_r)
+            r_desired = r_delta * r_ref
+            desired_rotation = r_desired.as_rotvec()
 
             self._command_when_disabled = (desired_position.copy(), desired_rotation.copy())
         else:
@@ -306,10 +311,18 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
             raise ValueError(f"EE position jump {pos_norm:.3f}m > {self.max_ee_step_m}m")
 
         # Check for jumps in rotation
-        drot = twist - self._last_rot
-        rot_norm = float(np.linalg.norm(drot))
+        # Compute the actual angular difference between rotations (not just vector difference)
+        r_last = Rotation.from_rotvec(self._last_rot)
+        r_current = Rotation.from_rotvec(twist)
+        r_diff = r_current * r_last.inv()
+        drot_vec = r_diff.as_rotvec()
+        rot_norm = float(np.linalg.norm(drot_vec))
         if rot_norm > self.max_ee_step_rad and rot_norm > 0:
-            twist = self._last_rot + drot * (self.max_ee_step_rad / rot_norm)
+            # Scale the rotation difference to max allowed step
+            drot_vec_scaled = drot_vec * (self.max_ee_step_rad / rot_norm)
+            r_diff_scaled = Rotation.from_rotvec(drot_vec_scaled)
+            r_clamped = r_diff_scaled * r_last
+            twist = r_clamped.as_rotvec()
             raise ValueError(f"EE rotation jump {rot_norm:.3f}rad > {self.max_ee_step_rad}rad")
 
         self._last_pos = pos
