@@ -494,8 +494,6 @@ def make_processors(
     ]
 
     # Add leader joint position to EE delta conversion if using leader arm teleop
-    # This step automatically detects if teleop_action is in joint position format
-    # and converts it to delta format for consistent learning
     if kinematics_solver is not None:
         action_pipeline_steps.append(
             LeaderJointPositionsToEEDeltasStep(

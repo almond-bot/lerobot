@@ -770,38 +770,40 @@ class InverseKinematicsRLStep(ProcessorStep):
 @dataclass
 class LeaderJointPositionsToEEDeltasStep(ProcessorStep):
     """
-    Converts leader arm joint positions to end-effector delta actions.
+    Converts leader arm joint positions to end-effector delta actions with rate limiting.
 
     This processor is used when teloperating with a leader arm (e.g., yam_leader, so101_leader).
-    It ensures:
-    1. The follower robot matches the leader's absolute pose (no drift)
-    2. The policy learns delta actions (consistent with gamepad control)
-    3. The recorded dataset contains delta actions for training
+    It computes deltas from leader to follower pose, clips them to end_effector_step_sizes
+    (preventing divergence), and normalizes to [-1, 1] range for pipeline compatibility.
 
     How it works:
     - Gets leader joint positions from complementary_data["teleop_action"]
     - Converts leader joints to EE pose via forward kinematics
     - Gets current follower EE pose from observation
-    - Computes deltas: target_ee - current_ee
-    - Normalizes deltas by dividing by end_effector_step_sizes (so they will be properly scaled later)
-    - Computes gripper delta: (target_gripper_pos - current_gripper_pos) / 100.0
-      to normalize from [0, 100] scale to [-1, 1] range for policy learning
-    - Outputs delta action dict compatible with the rest of the pipeline
+    - Computes raw deltas: target_ee - current_ee
+    - Clips each axis to ±end_effector_step_sizes (prevents divergence and ensures smooth following)
+    - Normalizes to [-1, 1] by dividing by end_effector_step_sizes
+    - EEReferenceAndDelta multiplies back by step_sizes, resulting in the clipped delta
+
+    This ensures the follower moves at most step_sizes per control cycle, preventing
+    divergence while allowing smooth tracking of the leader arm.
 
     Attributes:
         kinematics: The robot's kinematic model for forward kinematics.
         motor_names: A list of motor names for which to compute joint positions.
-        end_effector_step_sizes: A dictionary scaling the delta commands. Should contain keys:
-            - "x", "y", "z" for position scaling (required)
-            - "wx", "wy", "wz" for rotation scaling (optional, defaults to 1.0)
+        end_effector_step_sizes: Step sizes for clipping and normalization. MUST match EEReferenceAndDelta.
+        deadband_m: Deadband threshold for position (meters). Output zero if error is smaller.
+        deadband_rad: Deadband threshold for rotation (radians). Output zero if error is smaller.
     """
 
     kinematics: RobotKinematics
     motor_names: list[str]
-    end_effector_step_sizes: dict[str, float]
+    end_effector_step_sizes: dict[str, float]  # Must match EEReferenceAndDelta step sizes
+    deadband_m: float = 0.0005  # 0.5mm - output zero delta if closer than this
+    deadband_rad: float = 0.005  # ~0.3 degrees - output zero delta if closer than this
 
     def __call__(self, transition: EnvTransition) -> EnvTransition:
-        """Convert leader joint positions to EE deltas."""
+        """Convert leader joint positions to EE deltas with rate limiting."""
         new_transition = dict(transition)
 
         # Get leader joint positions from teleop_action
@@ -827,10 +829,14 @@ class LeaderJointPositionsToEEDeltasStep(ProcessorStep):
             return new_transition
 
         # Get current follower joint positions to compute current EE pose
-        current_joints = np.array(
-            [float(observation[f"{n}.pos"]) for n in self.motor_names if f"{n}.pos" in observation],
-            dtype=float,
-        )
+        # Use IK solution if available (must match what EEReferenceAndDelta uses)
+        if "IK_solution" in complementary_data:
+            current_joints = complementary_data["IK_solution"]
+        else:
+            current_joints = np.array(
+                [float(observation[f"{n}.pos"]) for n in self.motor_names if f"{n}.pos" in observation],
+                dtype=float,
+            )
 
         # Get leader target joint positions
         leader_joints = np.array(
@@ -856,26 +862,72 @@ class LeaderJointPositionsToEEDeltasStep(ProcessorStep):
         relative_rot = target_rot * current_rot.inv()
         raw_delta_rot = relative_rot.as_rotvec()
 
-        # Normalize deltas by dividing by step sizes (so they will be properly scaled later by EEReferenceAndDelta)
-        # This ensures that the deltas are in the same range as gamepad inputs
+        # Get gripper target
+        target_gripper_pos = teleop_action["gripper.pos"]
+
+        # Apply deadband to prevent jitter when very close
+        pos_norm = np.linalg.norm(raw_delta_pos)
+        rot_norm = np.linalg.norm(raw_delta_rot)
+
+        if pos_norm < self.deadband_m and rot_norm < self.deadband_rad:
+            # Very close to target - output zero delta to stabilize
+            delta_action = {
+                "delta_x": 0.0,
+                "delta_y": 0.0,
+                "delta_z": 0.0,
+                "delta_wx": 0.0,
+                "delta_wy": 0.0,
+                "delta_wz": 0.0,
+                "gripper": float(target_gripper_pos),
+            }
+            complementary_data["teleop_action"] = delta_action
+            new_transition[TransitionKey.COMPLEMENTARY_DATA] = complementary_data
+            return new_transition
+
+        # Clip each axis to its corresponding step size (prevents divergence)
+        # This ensures follower can't move faster than step_sizes per control cycle
+        clipped_delta_pos = np.array(
+            [
+                np.clip(
+                    raw_delta_pos[0], -self.end_effector_step_sizes["x"], self.end_effector_step_sizes["x"]
+                ),
+                np.clip(
+                    raw_delta_pos[1], -self.end_effector_step_sizes["y"], self.end_effector_step_sizes["y"]
+                ),
+                np.clip(
+                    raw_delta_pos[2], -self.end_effector_step_sizes["z"], self.end_effector_step_sizes["z"]
+                ),
+            ]
+        )
+
+        wx_max = self.end_effector_step_sizes.get("wx", 1.0)
+        wy_max = self.end_effector_step_sizes.get("wy", 1.0)
+        wz_max = self.end_effector_step_sizes.get("wz", 1.0)
+        clipped_delta_rot = np.array(
+            [
+                np.clip(raw_delta_rot[0], -wx_max, wx_max),
+                np.clip(raw_delta_rot[1], -wy_max, wy_max),
+                np.clip(raw_delta_rot[2], -wz_max, wz_max),
+            ]
+        )
+
+        # Normalize to [-1, 1] range by dividing by step sizes
+        # After EEReferenceAndDelta multiplies back, we get the clipped delta
         delta_pos = np.array(
             [
-                raw_delta_pos[0] / self.end_effector_step_sizes["x"],
-                raw_delta_pos[1] / self.end_effector_step_sizes["y"],
-                raw_delta_pos[2] / self.end_effector_step_sizes["z"],
+                clipped_delta_pos[0] / self.end_effector_step_sizes["x"],
+                clipped_delta_pos[1] / self.end_effector_step_sizes["y"],
+                clipped_delta_pos[2] / self.end_effector_step_sizes["z"],
             ]
         )
 
         delta_rot = np.array(
             [
-                raw_delta_rot[0] / self.end_effector_step_sizes["wx"],
-                raw_delta_rot[1] / self.end_effector_step_sizes["wy"],
-                raw_delta_rot[2] / self.end_effector_step_sizes["wz"],
+                clipped_delta_rot[0] / wx_max,
+                clipped_delta_rot[1] / wy_max,
+                clipped_delta_rot[2] / wz_max,
             ]
         )
-
-        # Compute gripper delta from current and target positions
-        target_gripper_pos = teleop_action["gripper.pos"]
 
         # Create delta action dict compatible with InterventionActionProcessorStep
         delta_action = {
