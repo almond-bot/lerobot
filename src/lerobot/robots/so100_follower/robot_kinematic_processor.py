@@ -53,7 +53,9 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
 
     Attributes:
         kinematics: The robot's kinematic model for forward kinematics.
-        end_effector_step_sizes: A dictionary scaling the input delta commands.
+        end_effector_step_sizes: A dictionary scaling the input delta commands. Should contain keys:
+            - "x", "y", "z" for position scaling (required)
+            - "rx", "ry", "rz" for rotation scaling (optional, defaults to 1.0)
         motor_names: A list of motor names required for forward kinematics.
         use_latched_reference: If True, latch the reference pose on enable; otherwise, always use the
             current pose as the reference.
@@ -127,7 +129,16 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
                 ],
                 dtype=float,
             )
-            r_abs = Rotation.from_rotvec([wx, wy, wz]).as_matrix()
+            # Scale rotation deltas if step sizes are provided
+            delta_r = np.array(
+                [
+                    wx * self.end_effector_step_sizes.get("rx", 1.0),
+                    wy * self.end_effector_step_sizes.get("ry", 1.0),
+                    wz * self.end_effector_step_sizes.get("rz", 1.0),
+                ],
+                dtype=float,
+            )
+            r_abs = Rotation.from_rotvec(delta_r).as_matrix()
             desired = np.eye(4, dtype=float)
             desired[:3, :3] = ref[:3, :3] @ r_abs
             desired[:3, 3] = ref[:3, 3] + delta_p
@@ -193,14 +204,20 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
     It also moderates the command to prevent large, sudden movements between consecutive steps.
 
     Attributes:
-        end_effector_bounds: A dictionary with "min" and "max" keys for position clipping.
+        end_effector_bounds: A dictionary with "min" and "max" keys for pose clipping.
+            Each should be a list/array with at least 3 elements [x, y, z] for position bounds.
+            If 6 elements are provided [x, y, z, wx, wy, wz], both position and orientation are clipped.
         max_ee_step_m: The maximum allowed change in position (in meters) between steps.
+        max_ee_step_rad: The maximum allowed change in orientation (in radians) between steps.
         _last_pos: Internal state storing the last commanded position.
+        _last_rot: Internal state storing the last commanded orientation (as rotation vector).
     """
 
     end_effector_bounds: dict
     max_ee_step_m: float = 0.05
+    max_ee_step_rad: float = 0.5
     _last_pos: np.ndarray | None = field(default=None, init=False, repr=False)
+    _last_rot: np.ndarray | None = field(default=None, init=False, repr=False)
 
     def action(self, action: RobotAction) -> RobotAction:
         x = action["ee.x"]
@@ -219,18 +236,35 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
         pos = np.array([x, y, z], dtype=float)
         twist = np.array([wx, wy, wz], dtype=float)
 
-        # Clip position
-        pos = np.clip(pos, self.end_effector_bounds["min"], self.end_effector_bounds["max"])
+        # Clip position and rotation
+        bounds_min = np.array(self.end_effector_bounds["min"], dtype=float)
+        bounds_max = np.array(self.end_effector_bounds["max"], dtype=float)
+
+        # Clip position (first 3 elements)
+        pos = np.clip(pos, bounds_min[:3], bounds_max[:3])
+
+        # Clip rotation if bounds include orientation (6 elements total)
+        if len(bounds_min) >= 6 and len(bounds_max) >= 6:
+            twist = np.clip(twist, bounds_min[3:6], bounds_max[3:6])
 
         # Check for jumps in position
         if self._last_pos is not None:
             dpos = pos - self._last_pos
-            n = float(np.linalg.norm(dpos))
-            if n > self.max_ee_step_m and n > 0:
-                pos = self._last_pos + dpos * (self.max_ee_step_m / n)
-                raise ValueError(f"EE jump {n:.3f}m > {self.max_ee_step_m}m")
+            pos_norm = float(np.linalg.norm(dpos))
+            if pos_norm > self.max_ee_step_m and pos_norm > 0:
+                pos = self._last_pos + dpos * (self.max_ee_step_m / pos_norm)
+                raise ValueError(f"EE position jump {pos_norm:.3f}m > {self.max_ee_step_m}m")
+
+        # Check for jumps in rotation
+        if self._last_rot is not None:
+            drot = twist - self._last_rot
+            rot_norm = float(np.linalg.norm(drot))
+            if rot_norm > self.max_ee_step_rad and rot_norm > 0:
+                twist = self._last_rot + drot * (self.max_ee_step_rad / rot_norm)
+                raise ValueError(f"EE rotation jump {rot_norm:.3f}rad > {self.max_ee_step_rad}rad")
 
         self._last_pos = pos
+        self._last_rot = twist
 
         action["ee.x"] = float(pos[0])
         action["ee.y"] = float(pos[1])
@@ -243,6 +277,7 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
     def reset(self):
         """Resets the last known position and orientation."""
         self._last_pos = None
+        self._last_rot = None
 
     def transform_features(
         self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
@@ -667,3 +702,123 @@ class InverseKinematicsRLStep(ProcessorStep):
     def reset(self):
         """Resets the initial guess for the IK solver."""
         self.q_curr = None
+
+
+@ProcessorStepRegistry.register("leader_joint_positions_to_ee_deltas")
+@dataclass
+class LeaderJointPositionsToEEDeltasStep(ProcessorStep):
+    """
+    Converts leader arm joint positions to end-effector delta actions.
+
+    This processor is used when teloperating with a leader arm (e.g., yam_leader, so101_leader).
+    It ensures:
+    1. The follower robot matches the leader's absolute pose (no drift)
+    2. The policy learns delta actions (consistent with gamepad control)
+    3. The recorded dataset contains delta actions for training
+
+    How it works:
+    - Gets leader joint positions from complementary_data["teleop_action"]
+    - Converts leader joints to EE pose via forward kinematics
+    - Gets current follower EE pose from observation
+    - Computes deltas: target_ee - current_ee
+    - Computes gripper delta: (target_gripper_pos - current_gripper_pos) / 100.0
+      to normalize from [0, 100] scale to [-1, 1] range for policy learning
+    - Outputs delta action dict compatible with the rest of the pipeline
+
+    Attributes:
+        kinematics: The robot's kinematic model for forward kinematics.
+        motor_names: A list of motor names for which to compute joint positions.
+    """
+
+    kinematics: RobotKinematics
+    motor_names: list[str]
+
+    def __call__(self, transition: EnvTransition) -> EnvTransition:
+        """Convert leader joint positions to EE deltas."""
+        new_transition = dict(transition)
+
+        # Get leader joint positions from teleop_action
+        complementary_data = new_transition.get(TransitionKey.COMPLEMENTARY_DATA, {})
+        teleop_action = complementary_data.get("teleop_action")
+
+        # Only process if we have teleop action in joint position format
+        if teleop_action is None or not isinstance(teleop_action, dict):
+            return new_transition
+
+        # Check if this is joint position format (has .pos keys) vs delta format (has delta_x keys)
+        has_joint_pos = any(key.endswith(".pos") for key in teleop_action)
+        has_delta_keys = "delta_x" in teleop_action
+
+        if has_delta_keys or not has_joint_pos:
+            # Already in delta format (gamepad) or unknown format, pass through
+            return new_transition
+
+        # Get current follower EE pose from observation
+        observation = new_transition.get(TransitionKey.OBSERVATION, {})
+        if not observation:
+            import logging
+
+            logging.warning("[LeaderToEEDeltas] No observation found, cannot compute deltas")
+            return new_transition
+
+        # Get current follower joint positions to compute current EE pose
+        current_joints = np.array(
+            [float(observation[f"{n}.pos"]) for n in self.motor_names if f"{n}.pos" in observation],
+            dtype=float,
+        )
+
+        # Get leader target joint positions
+        leader_joints = np.array(
+            [float(teleop_action[f"{n}.pos"]) for n in self.motor_names if f"{n}.pos" in teleop_action],
+            dtype=float,
+        )
+
+        # Compute current and target EE poses via FK
+        current_ee_transform = self.kinematics.forward_kinematics(current_joints)
+        target_ee_transform = self.kinematics.forward_kinematics(leader_joints)
+
+        # Extract positions and rotations
+        current_pos = current_ee_transform[:3, 3]
+        target_pos = target_ee_transform[:3, 3]
+
+        current_rot = Rotation.from_matrix(current_ee_transform[:3, :3])
+        target_rot = Rotation.from_matrix(target_ee_transform[:3, :3])
+
+        # Compute deltas
+        delta_pos = target_pos - current_pos
+
+        # For rotation, compute the relative rotation from current to target
+        relative_rot = target_rot * current_rot.inv()
+        delta_rot = relative_rot.as_rotvec()
+
+        # Compute gripper delta from current and target positions
+        target_gripper_pos = teleop_action.get("gripper.pos", 50.0)  # 0-100 scale
+        current_gripper_pos = observation.get("gripper.pos", 50.0)  # 0-100 scale
+        gripper_delta_raw = target_gripper_pos - current_gripper_pos  # Delta in 0-100 range
+
+        # Normalize gripper delta to [-1, 1] range for policy learning
+        # Divide by 100 to normalize from [-100, 100] to [-1, 1]
+        gripper_delta_normalized = gripper_delta_raw / 100.0
+
+        # Create delta action dict compatible with InterventionActionProcessorStep
+        delta_action = {
+            "delta_x": float(delta_pos[0]),
+            "delta_y": float(delta_pos[1]),
+            "delta_z": float(delta_pos[2]),
+            "delta_rx": float(delta_rot[0]),
+            "delta_ry": float(delta_rot[1]),
+            "delta_rz": float(delta_rot[2]),
+            "gripper": float(gripper_delta_normalized),  # Normalized delta in [-1, 1] range
+        }
+
+        # Update teleop_action in complementary data with delta format
+        complementary_data["teleop_action"] = delta_action
+        new_transition[TransitionKey.COMPLEMENTARY_DATA] = complementary_data
+
+        return new_transition
+
+    def transform_features(
+        self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
+    ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
+        # This step doesn't modify the feature structure, just converts action format
+        return features
