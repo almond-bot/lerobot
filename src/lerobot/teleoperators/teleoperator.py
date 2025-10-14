@@ -59,6 +59,19 @@ class Teleoperator(abc.ABC):
 
     @property
     @abc.abstractmethod
+    def observation_features(self) -> dict:
+        """
+        A dictionary describing the structure and types of the observations produced by the teleoperator. Its
+        structure (keys) should match the structure of what is returned by :pymeth:`get_observation`. Values for
+        the dict should be the type of the value if it's a simple value, e.g. `float` for single
+        proprioceptive value (a joint's position/velocity)
+
+        Note: this property should be able to be called regardless of whether the robot is connected or not.
+        """
+        pass
+
+    @property
+    @abc.abstractmethod
     def action_features(self) -> dict:
         """
         A dictionary describing the structure and types of the actions produced by the teleoperator. Its
@@ -161,13 +174,24 @@ class Teleoperator(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_observation(self) -> dict[str, Any]:
+        """
+        Retrieve the current observation from the teleoperator.
+
+        Returns:
+            dict[str, Any]: A flat dictionary representing the teleoperator's current observations. Its
+                structure should match :pymeth:`observation_features`.
+        """
+        pass
+
+    @abc.abstractmethod
     def get_action(self) -> dict[str, Any]:
         """
         Retrieve the current action from the teleoperator.
 
         Returns:
             dict[str, Any]: A flat dictionary representing the teleoperator's current actions. Its
-                structure should match :pymeth:`observation_features`.
+                structure should match :pymeth:`action_features`.
         """
         pass
 
