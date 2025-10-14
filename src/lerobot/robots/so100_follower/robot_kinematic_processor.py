@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -51,6 +52,10 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
     2.  `use_latched_reference=False`: The reference pose is updated to the robot's current pose at
         every step.
 
+    All operations are performed in vector space for simplicity:
+    - Position: 3D cartesian vector (x, y, z)
+    - Rotation: 3D rotation vector / axis-angle representation
+
     Attributes:
         kinematics: The robot's kinematic model for forward kinematics.
         end_effector_step_sizes: A dictionary scaling the input delta commands. Should contain keys:
@@ -59,8 +64,10 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
         motor_names: A list of motor names required for forward kinematics.
         use_latched_reference: If True, latch the reference pose on enable; otherwise, always use the
             current pose as the reference.
-        reference_ee_pose: Internal state storing the latched reference pose.
+        reference_position: Internal state storing the latched reference position vector.
+        reference_rotation: Internal state storing the latched reference rotation vector.
         _prev_enabled: Internal state to detect the rising edge of the enable signal.
+        _prev_rotvec: Internal state for rotation vector continuity (avoids ±π discontinuities).
         _command_when_disabled: Internal state to hold the last command while disabled.
     """
 
@@ -72,8 +79,10 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
     )
     use_ik_solution: bool = False
 
-    reference_ee_pose: np.ndarray | None = field(default=None, init=False, repr=False)
+    reference_position: np.ndarray | None = field(default=None, init=False, repr=False)
+    reference_rotation: np.ndarray | None = field(default=None, init=False, repr=False)
     _prev_enabled: bool = field(default=False, init=False, repr=False)
+    _prev_rotvec: np.ndarray | None = field(default=None, init=False, repr=False)
     _command_when_disabled: np.ndarray | None = field(default=None, init=False, repr=False)
 
     def action(self, action: RobotAction) -> RobotAction:
@@ -101,6 +110,8 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
 
         # Current pose from FK on measured joints
         t_curr = self.kinematics.forward_kinematics(q_raw)
+        curr_position = t_curr[:3, 3]
+        curr_rotation = Rotation.from_matrix(t_curr[:3, :3]).as_rotvec(previous_rotvec=self._prev_rotvec)
 
         enabled = bool(action.pop("enabled"))
         tx = float(action.pop("target_x"))
@@ -111,15 +122,20 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
         wz = float(action.pop("target_wz"))
         gripper_vel = float(action.pop("gripper_vel"))
 
-        desired = None
+        desired_position = None
+        desired_rotation = None
 
         if enabled:
-            ref = t_curr
+            ref_position = curr_position
+            ref_rotation = curr_rotation
+
             if self.use_latched_reference:
                 # Latched reference mode: latch reference at the rising edge
-                if not self._prev_enabled or self.reference_ee_pose is None:
-                    self.reference_ee_pose = t_curr.copy()
-                ref = self.reference_ee_pose if self.reference_ee_pose is not None else t_curr
+                if not self._prev_enabled or self.reference_position is None:
+                    self.reference_position = curr_position.copy()
+                    self.reference_rotation = curr_rotation.copy()
+                ref_position = self.reference_position
+                ref_rotation = self.reference_rotation
 
             delta_p = np.array(
                 [
@@ -129,7 +145,6 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
                 ],
                 dtype=float,
             )
-            # Scale rotation deltas if step sizes are provided
             delta_r = np.array(
                 [
                     wx * self.end_effector_step_sizes["wx"],
@@ -138,37 +153,39 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
                 ],
                 dtype=float,
             )
-            r_abs = Rotation.from_rotvec(delta_r).as_matrix()
-            desired = np.eye(4, dtype=float)
-            desired[:3, :3] = ref[:3, :3] @ r_abs
-            desired[:3, 3] = ref[:3, 3] + delta_p
 
-            self._command_when_disabled = desired.copy()
+            # Apply deltas directly in vector space
+            desired_position = ref_position + delta_p
+            desired_rotation = ref_rotation + delta_r
+
+            self._command_when_disabled = (desired_position.copy(), desired_rotation.copy())
         else:
             # While disabled, keep sending the same command to avoid drift.
             if self._command_when_disabled is None:
-                # If we've never had an enabled command yet, freeze current FK pose once.
-                self._command_when_disabled = t_curr.copy()
-            desired = self._command_when_disabled.copy()
+                # If we've never had an enabled command yet, freeze current pose.
+                self._command_when_disabled = (curr_position.copy(), curr_rotation.copy())
+            desired_position, desired_rotation = self._command_when_disabled
 
         # Write action fields
-        pos = desired[:3, 3]
-        tw = Rotation.from_matrix(desired[:3, :3]).as_rotvec()
-        action["ee.x"] = float(pos[0])
-        action["ee.y"] = float(pos[1])
-        action["ee.z"] = float(pos[2])
-        action["ee.wx"] = float(tw[0])
-        action["ee.wy"] = float(tw[1])
-        action["ee.wz"] = float(tw[2])
+        action["ee.x"] = float(desired_position[0])
+        action["ee.y"] = float(desired_position[1])
+        action["ee.z"] = float(desired_position[2])
+        action["ee.wx"] = float(desired_rotation[0])
+        action["ee.wy"] = float(desired_rotation[1])
+        action["ee.wz"] = float(desired_rotation[2])
         action["ee.gripper_vel"] = gripper_vel
 
+        # Update state for next iteration
+        self._prev_rotvec = desired_rotation.copy()
         self._prev_enabled = enabled
         return action
 
     def reset(self):
         """Resets the internal state of the processor."""
         self._prev_enabled = False
-        self.reference_ee_pose = None
+        self.reference_position = None
+        self.reference_rotation = None
+        self._prev_rotvec = None
         self._command_when_disabled = None
 
     def transform_features(
@@ -788,8 +805,6 @@ class LeaderJointPositionsToEEDeltasStep(ProcessorStep):
         # Get current follower EE pose from observation
         observation = new_transition.get(TransitionKey.OBSERVATION, {})
         if not observation:
-            import logging
-
             logging.warning("[LeaderToEEDeltas] No observation found, cannot compute deltas")
             return new_transition
 
