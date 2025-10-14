@@ -476,7 +476,7 @@ class GripperVelocityToJoint(RobotActionProcessorStep):
 
         if self.discrete_gripper:
             # Discrete gripper actions are in [0, 1, 2]
-            # 0: open, 1: close, 2: stay
+            # 0: CLOSE, 1: STAY, 2: OPEN (from GripperAction enum)
             # We need to shift them to [-1, 0, 1] and then scale them to clip_max
             gripper_vel = (gripper_vel - 1) * self.clip_max
 
