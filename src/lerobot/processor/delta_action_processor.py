@@ -61,7 +61,7 @@ class MapTensorToDeltaActionDictStep(ActionProcessorStep):
     def transform_features(
         self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
     ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
-        for axis in ["x", "y", "z", "rx", "ry", "rz"]:
+        for axis in ["x", "y", "z", "wx", "wy", "wz"]:
             features[PipelineFeatureType.ACTION][f"delta_{axis}"] = PolicyFeature(
                 type=FeatureType.ACTION, shape=(1,)
             )
@@ -139,7 +139,7 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
     def transform_features(
         self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
     ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
-        for axis in ["x", "y", "z", "rx", "ry", "rz", "gripper"]:
+        for axis in ["x", "y", "z", "wx", "wy", "wz", "gripper"]:
             features[PipelineFeatureType.ACTION].pop(f"delta_{axis}", None)
 
         for feat in ["enabled", "target_x", "target_y", "target_z", "target_wx", "target_wy", "target_wz"]:

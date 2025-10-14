@@ -55,7 +55,7 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
         kinematics: The robot's kinematic model for forward kinematics.
         end_effector_step_sizes: A dictionary scaling the input delta commands. Should contain keys:
             - "x", "y", "z" for position scaling (required)
-            - "rx", "ry", "rz" for rotation scaling (optional, defaults to 1.0)
+            - "wx", "wy", "wz" for rotation scaling (optional, defaults to 1.0)
         motor_names: A list of motor names required for forward kinematics.
         use_latched_reference: If True, latch the reference pose on enable; otherwise, always use the
             current pose as the reference.
@@ -132,9 +132,9 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
             # Scale rotation deltas if step sizes are provided
             delta_r = np.array(
                 [
-                    wx * self.end_effector_step_sizes.get("rx", 1.0),
-                    wy * self.end_effector_step_sizes.get("ry", 1.0),
-                    wz * self.end_effector_step_sizes.get("rz", 1.0),
+                    wx * self.end_effector_step_sizes["wx"],
+                    wy * self.end_effector_step_sizes["wy"],
+                    wz * self.end_effector_step_sizes["wz"],
                 ],
                 dtype=float,
             )
@@ -214,7 +214,7 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
     """
 
     end_effector_bounds: dict
-    max_ee_step_m: float = 0.02
+    max_ee_step_m: float = 0.05
     max_ee_step_rad: float = 0.1
     _last_pos: np.ndarray | None = field(default=None, init=False, repr=False)
     _last_rot: np.ndarray | None = field(default=None, init=False, repr=False)
