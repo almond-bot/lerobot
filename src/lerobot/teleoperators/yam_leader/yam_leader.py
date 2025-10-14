@@ -52,8 +52,6 @@ class YAMLeader(Teleoperator):
         self.robot: YAMLeaderRobot | None = None
         self.gamepad = None
 
-        self.previous_gripper_state: int | None = None
-
         # Joint info (initialized in connect)
         self.joint_limits: np.ndarray | None = None
 
@@ -145,11 +143,6 @@ class YAMLeader(Teleoperator):
         # Normalize gripper (gripper comes from get_info as 0-1, scale to 0-100)
         gripper_val_0_1 = joint_positions[-1]  # get_info returns 0-1 (0=closed, 1=open)
         normalized_gripper = GripperAction.OPEN.value if gripper_val_0_1 > 0.5 else GripperAction.CLOSE.value
-        if normalized_gripper != self.previous_gripper_state:
-            self.previous_gripper_state = normalized_gripper
-        else:
-            normalized_gripper = GripperAction.STAY.value
-
         motor_positions[YAM_ARM_MOTOR_NAMES[-1]] = float(normalized_gripper)
 
         return motor_positions
@@ -203,7 +196,6 @@ class YAMLeader(Teleoperator):
             logger.info("Disabling bilateral force feedback...")
             self.robot.update_kp_kd(kp=self.leader_kp, kd=self.leader_kd)
             self.robot._robot.hold_current_position()
-            self.previous_gripper_state = None
 
         # Use gamepad for episode control events (success, failure, rerecord)
         terminate_episode = False
