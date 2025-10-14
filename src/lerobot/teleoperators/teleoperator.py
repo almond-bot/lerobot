@@ -154,6 +154,16 @@ class Teleoperator(abc.ABC):
         with open(fpath, "w") as f, draccus.config_type("json"):
             draccus.dump(self.calibration, f, indent=4)
 
+    def get_observation(self) -> dict[str, Any]:
+        """
+        Retrieve the current observation from the teleoperator.
+
+        Returns:
+            dict[str, Any]: A flat dictionary representing the teleoperator's current observations. Its
+                structure should match :pymeth:`observation_features`.
+        """
+        return self.get_action()
+
     @abc.abstractmethod
     def configure(self) -> None:
         """
@@ -172,17 +182,6 @@ class Teleoperator(abc.ABC):
                 structure should match :pymeth:`teleop_events_features`.
         """
         pass
-
-    @abc.abstractmethod
-    def get_observation(self) -> dict[str, Any]:
-        """
-        Retrieve the current observation from the teleoperator.
-
-        Returns:
-            dict[str, Any]: A flat dictionary representing the teleoperator's current observations. Its
-                structure should match :pymeth:`observation_features`.
-        """
-        return self.get_action()
 
     @abc.abstractmethod
     def get_action(self) -> dict[str, Any]:
