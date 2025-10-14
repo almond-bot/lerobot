@@ -209,13 +209,18 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
             If 6 elements are provided [x, y, z, wx, wy, wz], both position and orientation are clipped.
         max_ee_step_m: The maximum allowed change in position (in meters) between steps.
         max_ee_step_rad: The maximum allowed change in orientation (in radians) between steps.
+        kinematics: Optional kinematics solver for computing current EE pose from joint positions.
+        motor_names: List of motor names for forward kinematics.
         _last_pos: Internal state storing the last commanded position.
         _last_rot: Internal state storing the last commanded orientation (as rotation vector).
+        _initialized: Whether _last_pos/_last_rot have been initialized from actual robot state.
     """
 
     end_effector_bounds: dict
     max_ee_step_m: float = 0.05
     max_ee_step_rad: float = 0.1
+    kinematics: RobotKinematics | None = None
+    motor_names: list[str] | None = None
     _last_pos: np.ndarray | None = field(default=None, init=False, repr=False)
     _last_rot: np.ndarray | None = field(default=None, init=False, repr=False)
 
@@ -247,21 +252,48 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
         if len(bounds_min) >= 6 and len(bounds_max) >= 6:
             twist = np.clip(twist, bounds_min[3:6], bounds_max[3:6])
 
+        # Initialize from actual robot state on first call (after reset)
+        if (
+            self._last_pos is None
+            and self._last_rot is None
+            and self.kinematics is not None
+            and self.motor_names is not None
+        ):
+            # Get current robot joint positions from observation
+            observation = self.transition[TransitionKey.OBSERVATION]
+            try:
+                current_joints = np.array(
+                    [
+                        float(observation[f"{name}.pos"])
+                        for name in self.motor_names
+                        if f"{name}.pos" in observation
+                    ],
+                    dtype=float,
+                )
+                if len(current_joints) == len(self.motor_names):
+                    # Compute current EE pose from actual robot joints
+                    current_ee_pose = self.kinematics.forward_kinematics(current_joints)
+                    self._last_pos = current_ee_pose[:3, 3]  # position
+                    self._last_rot = Rotation.from_matrix(current_ee_pose[:3, :3]).as_rotvec()  # rotation
+            except (KeyError, ValueError):
+                pass
+
+        if self._last_pos is None or self._last_rot is None:
+            raise ValueError("Last position and rotation are not initialized")
+
         # Check for jumps in position
-        if self._last_pos is not None:
-            dpos = pos - self._last_pos
-            pos_norm = float(np.linalg.norm(dpos))
-            if pos_norm > self.max_ee_step_m and pos_norm > 0:
-                pos = self._last_pos + dpos * (self.max_ee_step_m / pos_norm)
-                raise ValueError(f"EE position jump {pos_norm:.3f}m > {self.max_ee_step_m}m")
+        dpos = pos - self._last_pos
+        pos_norm = float(np.linalg.norm(dpos))
+        if pos_norm > self.max_ee_step_m and pos_norm > 0:
+            pos = self._last_pos + dpos * (self.max_ee_step_m / pos_norm)
+            raise ValueError(f"EE position jump {pos_norm:.3f}m > {self.max_ee_step_m}m")
 
         # Check for jumps in rotation
-        if self._last_rot is not None:
-            drot = twist - self._last_rot
-            rot_norm = float(np.linalg.norm(drot))
-            if rot_norm > self.max_ee_step_rad and rot_norm > 0:
-                twist = self._last_rot + drot * (self.max_ee_step_rad / rot_norm)
-                raise ValueError(f"EE rotation jump {rot_norm:.3f}rad > {self.max_ee_step_rad}rad")
+        drot = twist - self._last_rot
+        rot_norm = float(np.linalg.norm(drot))
+        if rot_norm > self.max_ee_step_rad and rot_norm > 0:
+            twist = self._last_rot + drot * (self.max_ee_step_rad / rot_norm)
+            raise ValueError(f"EE rotation jump {rot_norm:.3f}rad > {self.max_ee_step_rad}rad")
 
         self._last_pos = pos
         self._last_rot = twist

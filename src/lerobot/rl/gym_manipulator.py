@@ -528,6 +528,8 @@ def make_processors(
             ),
             EEBoundsAndSafety(
                 end_effector_bounds=cfg.processor.inverse_kinematics.end_effector_bounds,
+                kinematics=kinematics_solver,
+                motor_names=kinematics_joint_names,
             ),
             GripperVelocityToJoint(
                 clip_max=cfg.processor.max_gripper_pos,
