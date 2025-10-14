@@ -182,7 +182,7 @@ class Teleoperator(abc.ABC):
             dict[str, Any]: A flat dictionary representing the teleoperator's current observations. Its
                 structure should match :pymeth:`observation_features`.
         """
-        pass
+        return self.get_action()
 
     @abc.abstractmethod
     def get_action(self) -> dict[str, Any]:

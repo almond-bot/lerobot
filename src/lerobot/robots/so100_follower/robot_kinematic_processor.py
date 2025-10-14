@@ -852,23 +852,17 @@ class LeaderJointPositionsToEEDeltasStep(ProcessorStep):
         delta_rot = relative_rot.as_rotvec()
 
         # Compute gripper delta from current and target positions
-        target_gripper_pos = teleop_action.get("gripper.pos", 50.0)  # 0-100 scale
-        current_gripper_pos = observation.get("gripper.pos", 50.0)  # 0-100 scale
-        gripper_delta_raw = target_gripper_pos - current_gripper_pos  # Delta in 0-100 range
-
-        # Normalize gripper delta to [-1, 1] range for policy learning
-        # Divide by 100 to normalize from [-100, 100] to [-1, 1]
-        gripper_delta_normalized = gripper_delta_raw / 100.0
+        target_gripper_pos = teleop_action["gripper.pos"]
 
         # Create delta action dict compatible with InterventionActionProcessorStep
         delta_action = {
             "delta_x": float(delta_pos[0]),
             "delta_y": float(delta_pos[1]),
             "delta_z": float(delta_pos[2]),
-            "delta_rx": float(delta_rot[0]),
-            "delta_ry": float(delta_rot[1]),
-            "delta_rz": float(delta_rot[2]),
-            "gripper": float(gripper_delta_normalized),  # Normalized delta in [-1, 1] range
+            "delta_wx": float(delta_rot[0]),
+            "delta_wy": float(delta_rot[1]),
+            "delta_wz": float(delta_rot[2]),
+            "gripper": float(target_gripper_pos),
         }
 
         # Update teleop_action in complementary data with delta format

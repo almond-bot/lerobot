@@ -50,9 +50,9 @@ class MapTensorToDeltaActionDictStep(ActionProcessorStep):
             "delta_x": action[0].item(),
             "delta_y": action[1].item(),
             "delta_z": action[2].item(),
-            "delta_rx": action[3].item(),
-            "delta_ry": action[4].item(),
-            "delta_rz": action[5].item(),
+            "delta_wx": action[3].item(),
+            "delta_wy": action[4].item(),
+            "delta_wz": action[5].item(),
         }
         if self.use_gripper:
             delta_action["gripper"] = action[6].item()
@@ -99,16 +99,16 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
         delta_x = action.pop("delta_x")
         delta_y = action.pop("delta_y")
         delta_z = action.pop("delta_z")
-        delta_rx = action.pop("delta_rx")
-        delta_ry = action.pop("delta_ry")
-        delta_rz = action.pop("delta_rz")
+        delta_wx = action.pop("delta_wx")
+        delta_wy = action.pop("delta_wy")
+        delta_wz = action.pop("delta_wz")
         gripper = action.pop("gripper")
 
         # Determine if the teleoperator is actively providing input
         # Consider enabled if any significant movement delta is detected
         position_magnitude = (delta_x**2 + delta_y**2 + delta_z**2) ** 0.5  # Use Euclidean norm for position
         rotation_magnitude = (
-            delta_rx**2 + delta_ry**2 + delta_rz**2
+            delta_wx**2 + delta_wy**2 + delta_wz**2
         ) ** 0.5  # Use Euclidean norm for rotation
         enabled = position_magnitude > self.noise_threshold or rotation_magnitude > self.noise_threshold
 
@@ -118,9 +118,9 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
         scaled_delta_z = delta_z * self.position_scale
 
         # Use rotation deltas from policy output
-        target_wx = delta_rx
-        target_wy = delta_ry
-        target_wz = delta_rz
+        target_wx = delta_wx
+        target_wy = delta_wy
+        target_wz = delta_wz
 
         # Update action with robot target format
         action = {

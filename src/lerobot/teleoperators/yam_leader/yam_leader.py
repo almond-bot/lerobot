@@ -23,7 +23,6 @@ from i2rt.lerobot.helpers import (
     YAMLeaderRobot,
     denormalize_arm_position,
     normalize_arm_position,
-    normalize_gripper_position,
 )
 from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.utils import GripperType
@@ -31,6 +30,7 @@ from i2rt.robots.utils import GripperType
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 from ..gamepad.gamepad_utils import GamepadController
+from ..gamepad.teleop_gamepad import GripperAction
 from ..teleoperator import Teleoperator
 from ..utils import TeleopEvents
 from .config_yam_leader import YAMLeaderConfig
@@ -51,6 +51,8 @@ class YAMLeader(Teleoperator):
         self.config = config
         self.robot: YAMLeaderRobot | None = None
         self.gamepad = None
+
+        self.previous_gripper_state: int | None = None
 
         # Joint info (initialized in connect)
         self.joint_limits: np.ndarray | None = None
@@ -142,53 +144,21 @@ class YAMLeader(Teleoperator):
 
         # Normalize gripper (gripper comes from get_info as 0-1, scale to 0-100)
         gripper_val_0_1 = joint_positions[-1]  # get_info returns 0-1 (0=closed, 1=open)
-        normalized_gripper = normalize_gripper_position(gripper_val_0_1)  # Scale to 0-100
+        normalized_gripper = GripperAction.OPEN.value if gripper_val_0_1 > 0.5 else GripperAction.CLOSE.value
+        if normalized_gripper != self.previous_gripper_state:
+            self.previous_gripper_state = normalized_gripper
+        else:
+            normalized_gripper = GripperAction.STAY.value
+
         motor_positions[YAM_ARM_MOTOR_NAMES[-1]] = float(normalized_gripper)
 
         return motor_positions
-
-    def get_observation(self) -> dict[str, float]:
-        """Get current observation from the leader arm.
-
-        Returns:
-            Dict mapping motor names (with .pos suffix) to normalized positions.
-        """
-        if not self.is_connected:
-            raise DeviceNotConnectedError(f"{self} is not connected.")
-
-        start = time.perf_counter()
-
-        # Get normalized motor positions
-        obs_dict = {f"{motor}.pos": val for motor, val in self._get_normalized_motor_positions().items()}
-
-        dt_ms = (time.perf_counter() - start) * 1e3
-        logger.debug(f"{self} read observation: {dt_ms:.1f}ms")
-
-        return obs_dict
 
     def get_action(self) -> dict[str, float]:
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
         start = time.perf_counter()
-
-        # Read arm position + gripper (returns positions in radians for arm, 0-1 for gripper)
-        # Also get button states from teaching handle
-        _, button_states = self.robot.get_info()  # Returns (qpos_with_gripper, button_states)
-
-        # Update intervention state based on teaching handle button (must hold to maintain intervention)
-        old_is_intervening = self.is_intervening
-        self.is_intervening = bool(button_states[0]) if button_states and len(button_states) > 0 else False
-        if self.is_intervening and not old_is_intervening:
-            # Start intervention: enable bilateral control and zero torque mode
-            logger.info("Enabling bilateral force feedback...")
-            self.robot.update_kp_kd(kp=self.leader_kp * self.bilateral_kp, kd=np.ones(6) * 0.0)
-            self.robot._robot.zero_torque_mode()
-        elif not self.is_intervening and old_is_intervening:
-            # Stop intervention: revert to original kp/kd and hold position
-            logger.info("Disabling bilateral force feedback...")
-            self.robot.update_kp_kd(kp=self.leader_kp, kd=self.leader_kd)
-            self.robot._robot.hold_current_position()
 
         # Get normalized motor positions
         action = {f"{motor}.pos": val for motor, val in self._get_normalized_motor_positions().items()}
@@ -217,8 +187,23 @@ class YAMLeader(Teleoperator):
                 - TeleopEvents.SUCCESS: bool - Whether the episode was successful
                 - TeleopEvents.RERECORD_EPISODE: bool - Whether to rerecord the episode
         """
-        # Intervention state is already updated in get_action() from teaching handle button
-        is_intervention = self.is_intervening
+        # Get button states from teaching handle
+        _, button_states = self.robot.get_info()  # Returns (qpos_with_gripper, button_states)
+
+        # Update intervention state based on teaching handle button (must hold to maintain intervention)
+        old_is_intervening = self.is_intervening
+        self.is_intervening = bool(button_states[0]) if button_states and len(button_states) > 0 else False
+        if self.is_intervening and not old_is_intervening:
+            # Start intervention: enable bilateral control and zero torque mode
+            logger.info("Enabling bilateral force feedback...")
+            self.robot.update_kp_kd(kp=self.leader_kp * self.bilateral_kp, kd=np.ones(6) * 0.0)
+            self.robot._robot.zero_torque_mode()
+        elif not self.is_intervening and old_is_intervening:
+            # Stop intervention: revert to original kp/kd and hold position
+            logger.info("Disabling bilateral force feedback...")
+            self.robot.update_kp_kd(kp=self.leader_kp, kd=self.leader_kd)
+            self.robot._robot.hold_current_position()
+            self.previous_gripper_state = None
 
         # Use gamepad for episode control events (success, failure, rerecord)
         terminate_episode = False
@@ -239,7 +224,7 @@ class YAMLeader(Teleoperator):
             rerecord_episode = episode_end_status == TeleopEvents.RERECORD_EPISODE
 
         return {
-            TeleopEvents.IS_INTERVENTION: is_intervention,
+            TeleopEvents.IS_INTERVENTION: self.is_intervening,
             TeleopEvents.TERMINATE_EPISODE: terminate_episode,
             TeleopEvents.SUCCESS: success,
             TeleopEvents.RERECORD_EPISODE: rerecord_episode,
