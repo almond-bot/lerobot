@@ -264,6 +264,7 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
     def reset(self):
         """Resets the last known position and orientation."""
         self._last_pos = None
+        self._last_rot = None
 
     def transform_features(
         self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
