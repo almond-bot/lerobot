@@ -644,16 +644,15 @@ class InverseKinematicsRLStep(ProcessorStep):
 
         # Compute inverse kinematics
         q_target = self.kinematics.inverse_kinematics(self.q_curr, t_des)
+        q_target[5] = j6
         self.q_curr = q_target
 
         # TODO: This is sentitive to order of motor_names = q_target mapping
         for i, name in enumerate(self.motor_names):
-            if i == 5:
-                action[f"{name}.pos"] = float(j6)
-            elif name == "gripper":
-                action["gripper.pos"] = float(gripper_pos)
-            else:
+            if name != "gripper":
                 action[f"{name}.pos"] = float(q_target[i])
+            else:
+                action["gripper.pos"] = float(gripper_pos)
 
         # Always add gripper position back, even if not in motor_names
         # This handles robots where gripper is not part of kinematics
