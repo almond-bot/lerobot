@@ -207,7 +207,7 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
 
     end_effector_bounds: dict
     max_ee_step_m: float = 0.05
-    max_ee_step_deg: float = 5
+    max_ee_step_deg: float = 7.5
     _last_pos: np.ndarray | None = field(default=None, init=False, repr=False)
     _last_rot: np.ndarray | None = field(default=None, init=False, repr=False)
 
