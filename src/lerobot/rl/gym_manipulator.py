@@ -238,12 +238,11 @@ class RobotEnv(gym.Env):
         """
         # Reset the robot
         # self.robot.reset()
-        start_time = time.perf_counter()
         if self.reset_pose is not None:
             log_say("Reset the environment.", play_sounds=True)
             reset_follower_position(self.robot, self.reset_pose)
 
-        busy_wait(self.reset_time_s - (time.perf_counter() - start_time))
+        input("Press Enter to continue...")
 
         log_say("Reset the environment done.", play_sounds=True)
 
