@@ -107,6 +107,7 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
         wx = float(action.pop("target_wx"))
         wy = float(action.pop("target_wy"))
         wz = float(action.pop("target_wz"))
+        j6 = float(action.pop("target_j6"))
         gripper_vel = float(action.pop("gripper_vel"))
 
         desired = None
@@ -132,6 +133,9 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
             desired[:3, :3] = ref[:3, :3] @ r_abs
             desired[:3, 3] = ref[:3, 3] + delta_p
 
+            delta_j6 = j6 * self.end_effector_step_sizes["j6"]
+            desired_j6 = q_raw[5] + delta_j6
+
             self._command_when_disabled = desired.copy()
         else:
             # While disabled, keep sending the same command to avoid drift.
@@ -149,6 +153,7 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
         action["ee.wx"] = float(tw[0])
         action["ee.wy"] = float(tw[1])
         action["ee.wz"] = float(tw[2])
+        action["ee.j6"] = float(desired_j6)
         action["ee.gripper_vel"] = gripper_vel
 
         self._prev_enabled = enabled
@@ -171,11 +176,12 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
             "target_wx",
             "target_wy",
             "target_wz",
+            "target_j6",
             "gripper_vel",
         ]:
             features[PipelineFeatureType.ACTION].pop(f"{feat}", None)
 
-        for feat in ["x", "y", "z", "wx", "wy", "wz", "gripper_vel"]:
+        for feat in ["x", "y", "z", "wx", "wy", "wz", "j6", "gripper_vel"]:
             features[PipelineFeatureType.ACTION][f"ee.{feat}"] = PolicyFeature(
                 type=FeatureType.ACTION, shape=(1,)
             )
@@ -200,7 +206,7 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
 
     end_effector_bounds: dict
     max_ee_step_m: float = 0.05
-    max_ee_step_rad: float = 0.1
+    max_ee_step_deg: float = 5
     _last_pos: np.ndarray | None = field(default=None, init=False, repr=False)
     _last_rot: np.ndarray | None = field(default=None, init=False, repr=False)
 
@@ -211,18 +217,20 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
         wx = action["ee.wx"]
         wy = action["ee.wy"]
         wz = action["ee.wz"]
+        j6 = action["ee.j6"]
         # TODO(Steven): ee.gripper_vel does not need to be bounded
 
-        if None in (x, y, z, wx, wy, wz):
+        if None in (x, y, z, wx, wy, wz, j6):
             raise ValueError(
-                "Missing required end-effector pose components: x, y, z, wx, wy, wz must all be present in action"
+                "Missing required end-effector pose components: x, y, z, wx, wy, wz, j6 must all be present in action"
             )
 
         pos = np.array([x, y, z], dtype=float)
         twist = np.array([wx, wy, wz], dtype=float)
 
         # Clip position
-        pos = np.clip(pos, self.end_effector_bounds["min"], self.end_effector_bounds["max"])
+        pos = np.clip(pos, self.end_effector_bounds["min"][:3], self.end_effector_bounds["max"][:3])
+        j6 = np.clip(j6, self.end_effector_bounds["min"][3], self.end_effector_bounds["max"][3])
 
         # Check for jumps in position
         if self._last_pos is not None:
@@ -234,14 +242,14 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
 
         # Check for jumps in rotation
         if self._last_rot is not None:
-            drot = twist - self._last_rot
+            drot = j6 - self._last_rot
             n = float(np.linalg.norm(drot))
-            if n > self.max_ee_step_rad and n > 0:
-                twist = self._last_rot + drot * (self.max_ee_step_rad / n)
-                raise ValueError(f"EE jump {n:.3f}rad > {self.max_ee_step_rad}rad")
+            if n > self.max_ee_step_deg and n > 0:
+                j6 = self._last_rot + drot * (self.max_ee_step_deg / n)
+                raise ValueError(f"EE jump {n:.3f}deg > {self.max_ee_step_deg}deg")
 
         self._last_pos = pos
-        self._last_rot = twist
+        self._last_rot = j6
 
         action["ee.x"] = float(pos[0])
         action["ee.y"] = float(pos[1])
@@ -249,6 +257,7 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
         action["ee.wx"] = float(twist[0])
         action["ee.wy"] = float(twist[1])
         action["ee.wz"] = float(twist[2])
+        action["ee.j6"] = float(j6)
         return action
 
     def reset(self):
@@ -435,9 +444,7 @@ def compute_forward_kinematics_joints_to_ee(
 
     # Update observation.state to include ee pose instead of joint positions
     if OBS_STATE in joints:
-        ee_state = torch.tensor(
-            [pos[0], pos[1], pos[2], tw[0], tw[1], tw[2], gripper_pos], dtype=torch.float32
-        )
+        ee_state = torch.tensor([pos[0], pos[1], pos[2], q[5], gripper_pos], dtype=torch.float32)
         # If observation.state had joint positions, replace with ee pose
         # If it had joint positions + velocities/currents, keep those extras
         current_state = joints[OBS_STATE]
@@ -491,11 +498,11 @@ class ForwardKinematicsJointsToEEObservation(ObservationProcessorStep):
                 type=FeatureType.STATE, shape=(1,)
             )
 
-        # Update observation.state shape to reflect ee pose (7 values) instead of joint positions
+        # Update observation.state shape to reflect ee pose (5 values) instead of joint positions
         if OBS_STATE in features[PipelineFeatureType.OBSERVATION]:
             original_feature = features[PipelineFeatureType.OBSERVATION][OBS_STATE]
             num_joints = len(self.motor_names) + 1  # +1 for gripper
-            ee_dim = 7  # x, y, z, wx, wy, wz, gripper_pos
+            ee_dim = 5  # x, y, z, j6, gripper_pos
 
             # Calculate the difference and adjust shape
             if original_feature.shape[0] > num_joints:
@@ -604,11 +611,12 @@ class InverseKinematicsRLStep(ProcessorStep):
         wx = action.pop("ee.wx")
         wy = action.pop("ee.wy")
         wz = action.pop("ee.wz")
+        j6 = action.pop("ee.j6")
         gripper_pos = action.pop("ee.gripper_pos")
 
-        if None in (x, y, z, wx, wy, wz, gripper_pos):
+        if None in (x, y, z, wx, wy, wz, j6, gripper_pos):
             raise ValueError(
-                "Missing required end-effector pose components: ee.x, ee.y, ee.z, ee.wx, ee.wy, ee.wz, ee.gripper_pos must all be present in action"
+                "Missing required end-effector pose components: ee.x, ee.y, ee.z, ee.wx, ee.wy, ee.wz, ee.j6, ee.gripper_pos must all be present in action"
             )
 
         observation = new_transition.get(TransitionKey.OBSERVATION).copy()
@@ -639,10 +647,12 @@ class InverseKinematicsRLStep(ProcessorStep):
 
         # TODO: This is sentitive to order of motor_names = q_target mapping
         for i, name in enumerate(self.motor_names):
-            if name != "gripper":
-                action[f"{name}.pos"] = float(q_target[i])
-            else:
+            if i == 5:
+                action[f"{name}.pos"] = float(j6)
+            elif name == "gripper":
                 action["gripper.pos"] = float(gripper_pos)
+            else:
+                action[f"{name}.pos"] = float(q_target[i])
 
         # Always add gripper position back, even if not in motor_names
         # This handles robots where gripper is not part of kinematics
@@ -658,7 +668,7 @@ class InverseKinematicsRLStep(ProcessorStep):
     def transform_features(
         self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
     ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
-        for feat in ["x", "y", "z", "wx", "wy", "wz", "gripper_pos"]:
+        for feat in ["x", "y", "z", "wx", "wy", "wz", "j6", "gripper_pos"]:
             features[PipelineFeatureType.ACTION].pop(f"ee.{feat}", None)
 
         for name in self.motor_names:
