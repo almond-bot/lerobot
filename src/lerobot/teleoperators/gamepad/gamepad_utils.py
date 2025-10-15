@@ -198,8 +198,9 @@ class KeyboardController(InputController):
 class GamepadController(InputController):
     """Generate motion deltas from gamepad input."""
 
-    def __init__(self, x_step_size=1.0, y_step_size=1.0, z_step_size=1.0, deadzone=0.1):
+    def __init__(self, x_step_size=1.0, y_step_size=1.0, z_step_size=1.0, j6_step_size=1.0, deadzone=0.1):
         super().__init__(x_step_size, y_step_size, z_step_size)
+        self.j6_step_size = j6_step_size
         self.deadzone = deadzone
         self.joystick = None
         self.intervention_flag = False
@@ -283,23 +284,27 @@ class GamepadController(InputController):
             x_input = self.joystick.get_axis(1)  # Left/Right
 
             # Right stick Y (typically axis 3 or 4)
+            # Right stick j6
+            j6_input = self.joystick.get_axis(3)
             z_input = self.joystick.get_axis(4)  # Up/Down for Z
 
             # Apply deadzone to avoid drift
             x_input = 0 if abs(x_input) < self.deadzone else x_input
             y_input = 0 if abs(y_input) < self.deadzone else y_input
             z_input = 0 if abs(z_input) < self.deadzone else z_input
+            j6_input = 0 if abs(j6_input) < self.deadzone else j6_input
 
             # Calculate deltas (note: may need to invert axes depending on controller)
             delta_x = -x_input * self.x_step_size  # Forward/backward
             delta_y = -y_input * self.y_step_size  # Left/right
             delta_z = -z_input * self.z_step_size  # Up/down
+            delta_j6 = j6_input * self.j6_step_size  # Up/down
 
-            return delta_x, delta_y, delta_z
+            return delta_x, delta_y, delta_z, delta_j6
 
         except pygame.error:
             logging.error("Error reading gamepad. Is it still connected?")
-            return 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
 
 
 class GamepadControllerHID(InputController):

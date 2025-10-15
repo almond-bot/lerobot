@@ -870,6 +870,10 @@ def handle_resume_logic(cfg: TrainRLServerPipelineConfig) -> TrainRLServerPipeli
 
     # Ensure resume flag is set in returned config
     checkpoint_cfg.resume = True
+
+    # This is needed to populate pretrained_path and checkpoint_path
+    checkpoint_cfg.validate()
+
     return checkpoint_cfg
 
 
@@ -959,9 +963,7 @@ def initialize_replay_buffer(
     dataset_path = os.path.join(cfg.output_dir, "dataset")
 
     # NOTE: In RL is possible to not have a dataset.
-    repo_id = None
-    if cfg.dataset is not None:
-        repo_id = cfg.dataset.repo_id
+    repo_id = cfg.dataset.repo_id if cfg.dataset is not None else cfg.env.task
     dataset = LeRobotDataset(
         repo_id=repo_id,
         root=dataset_path,

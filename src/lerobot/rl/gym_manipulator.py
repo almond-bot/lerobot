@@ -238,12 +238,11 @@ class RobotEnv(gym.Env):
         """
         # Reset the robot
         # self.robot.reset()
-        start_time = time.perf_counter()
         if self.reset_pose is not None:
             log_say("Reset the environment.", play_sounds=True)
             reset_follower_position(self.robot, self.reset_pose)
 
-        busy_wait(self.reset_time_s - (time.perf_counter() - start_time))
+        input("Press Enter to continue...")
 
         log_say("Reset the environment done.", play_sounds=True)
 
@@ -663,7 +662,7 @@ def control_loop(
         step_start_time = time.perf_counter()
 
         # Create a neutral action (no movement)
-        neutral_action = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32)
+        neutral_action = torch.tensor([0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
         if use_gripper:
             neutral_action = torch.cat([neutral_action, torch.tensor([1.0])])  # Gripper stay
 

@@ -58,14 +58,14 @@ class GamepadTeleop(Teleoperator):
         if self.config.use_gripper:
             return {
                 "dtype": "float32",
-                "shape": (4,),
-                "names": {"delta_x": 0, "delta_y": 1, "delta_z": 2, "gripper": 3},
+                "shape": (5,),
+                "names": {"delta_x": 0, "delta_y": 1, "delta_z": 2, "delta_j6": 3, "gripper": 4},
             }
         else:
             return {
                 "dtype": "float32",
-                "shape": (3,),
-                "names": {"delta_x": 0, "delta_y": 1, "delta_z": 2},
+                "shape": (4,),
+                "names": {"delta_x": 0, "delta_y": 1, "delta_z": 2, "delta_j6": 3},
             }
 
     @property
@@ -88,15 +88,16 @@ class GamepadTeleop(Teleoperator):
         self.gamepad.update()
 
         # Get movement deltas from the controller
-        delta_x, delta_y, delta_z = self.gamepad.get_deltas()
+        delta_x, delta_y, delta_z, delta_j6 = self.gamepad.get_deltas()
 
         # Create action from gamepad input
-        gamepad_action = np.array([delta_x, delta_y, delta_z], dtype=np.float32)
+        gamepad_action = np.array([delta_x, delta_y, delta_z, delta_j6], dtype=np.float32)
 
         action_dict = {
             "delta_x": gamepad_action[0],
             "delta_y": gamepad_action[1],
             "delta_z": gamepad_action[2],
+            "delta_j6": gamepad_action[3],
         }
 
         # Default gripper action is to stay
