@@ -54,7 +54,7 @@ class MapTensorToDeltaActionDictStep(ActionProcessorStep):
             "delta_j6": action[3].item(),
         }
         if self.use_gripper:
-            delta_action["gripper"] = action[3].item()
+            delta_action["gripper"] = action[4].item()
         return delta_action
 
     def transform_features(

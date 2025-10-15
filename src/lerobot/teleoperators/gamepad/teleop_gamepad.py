@@ -58,14 +58,14 @@ class GamepadTeleop(Teleoperator):
         if self.config.use_gripper:
             return {
                 "dtype": "float32",
-                "shape": (4,),
-                "names": {"delta_x": 0, "delta_y": 1, "delta_z": 2, "gripper": 3},
+                "shape": (5,),
+                "names": {"delta_x": 0, "delta_y": 1, "delta_z": 2, "delta_j6": 3, "gripper": 4},
             }
         else:
             return {
                 "dtype": "float32",
-                "shape": (3,),
-                "names": {"delta_x": 0, "delta_y": 1, "delta_z": 2},
+                "shape": (4,),
+                "names": {"delta_x": 0, "delta_y": 1, "delta_z": 2, "delta_j6": 3},
             }
 
     @property
