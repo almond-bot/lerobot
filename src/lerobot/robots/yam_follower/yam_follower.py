@@ -75,6 +75,14 @@ class YAMFollower(Robot):
     def action_features(self) -> dict[str, type]:
         return self._motors_ft
 
+    @cached_property
+    def motor_names(self) -> list[str]:
+        return YAM_ARM_MOTOR_NAMES
+
+    @cached_property
+    def kinematics_joint_names(self) -> list[str]:
+        return YAM_ARM_MOTOR_NAMES[:-1]
+
     @property
     def is_connected(self) -> bool:
         robot_is_connected = (
@@ -96,6 +104,15 @@ class YAMFollower(Robot):
         self.robot = get_yam_robot(
             channel=self.config.port, gripper_type=self.config.gripper_type, zero_gravity_mode=False
         )
+
+        current_kp = self.robot._kp.copy()
+        current_kd = self.robot._kd.copy()
+
+        # Reduce gripper kp to slow it down (e.g., from 20 to 5)
+        current_kp[6] = 5.0  # Much gentler position control
+        current_kd[6] = 1.0  # Increase damping to smooth it out
+
+        self.robot.update_kp_kd(current_kp, current_kd)
 
         # Cache joint limits directly from the robot object (avoids buggy get_robot_info())
         self.joint_limits = self.robot._joint_limits  # Shape: (6, 2) for 6 arm joints in radians
@@ -163,6 +180,22 @@ class YAMFollower(Robot):
             logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
 
         return obs_dict
+
+    def get_current(self) -> dict[str, Any]:
+        if not self.is_connected:
+            raise DeviceNotConnectedError(f"{self} is not connected.")
+
+        # Get current (eff) from robot observations
+        # In MotorInfo, the 'eff' field represents motor current
+        obs = self.robot.get_observations()
+        joint_eff = obs["joint_eff"]  # Array of current values for all motors including gripper
+
+        # Create dictionary mapping motor names to current values
+        cur_dict = {}
+        for i, motor_name in enumerate(YAM_ARM_MOTOR_NAMES):
+            cur_dict[f"{motor_name}.cur"] = float(joint_eff[i])
+
+        return cur_dict
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         """Command arm to move to a target joint configuration.

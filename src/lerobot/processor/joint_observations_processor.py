@@ -163,9 +163,9 @@ class MotorCurrentProcessorStep(ObservationProcessorStep):
         if self.robot is None:
             raise ValueError("Robot is not set")
 
-        present_current_dict = self.robot.bus.sync_read("Present_Current")  # type: ignore[attr-defined]
+        present_current_dict = self.robot.get_current()  # type: ignore[attr-defined]
         motor_currents = torch.tensor(
-            [present_current_dict[name] for name in self.robot.bus.motors],  # type: ignore[attr-defined]
+            list(present_current_dict.values()),  # type: ignore[attr-defined]
             dtype=torch.float32,
         ).unsqueeze(0)
 
@@ -199,9 +199,7 @@ class MotorCurrentProcessorStep(ObservationProcessorStep):
         if OBS_STATE in features[PipelineFeatureType.OBSERVATION] and self.robot is not None:
             original_feature = features[PipelineFeatureType.OBSERVATION][OBS_STATE]
             # Add motor current dimensions to the original state shape
-            num_motors = 0
-            if hasattr(self.robot, "bus") and hasattr(self.robot.bus, "motors"):  # type: ignore[attr-defined]
-                num_motors = len(self.robot.bus.motors)  # type: ignore[attr-defined]
+            num_motors = len(self.robot.motor_names)
 
             if num_motors > 0:
                 new_shape = (original_feature.shape[0] + num_motors,) + original_feature.shape[1:]

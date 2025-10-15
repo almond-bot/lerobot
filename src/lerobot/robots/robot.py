@@ -58,6 +58,22 @@ class Robot(abc.ABC):
     def __str__(self) -> str:
         return f"{self.id} {self.__class__.__name__}"
 
+    @property
+    @abc.abstractmethod
+    def motor_names(self) -> list[str]:
+        """
+        The names of the motors in the robot.
+        """
+        pass
+
+    @property
+    @abc.abstractmethod
+    def kinematics_joint_names(self) -> list[str]:
+        """
+        The names of the joints in the robot's kinematics.
+        """
+        pass
+
     # TODO(aliberts): create a proper Feature class for this that links with datasets
     @property
     @abc.abstractmethod
@@ -162,6 +178,17 @@ class Robot(abc.ABC):
                 should match :pymeth:`observation_features`.
         """
 
+        pass
+
+    @abc.abstractmethod
+    def get_current(self) -> dict[str, Any]:
+        """
+        Retrieve the current of the robot.
+
+        Returns:
+            dict[str, Any]: A flat dictionary representing the robot's motor currents. Its structure
+                should match :pymeth:`observation_features`.
+        """
         pass
 
     @abc.abstractmethod

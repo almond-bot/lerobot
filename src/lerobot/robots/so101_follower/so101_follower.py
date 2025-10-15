@@ -78,6 +78,14 @@ class SO101Follower(Robot):
     def action_features(self) -> dict[str, type]:
         return self._motors_ft
 
+    @cached_property
+    def motor_names(self) -> list[str]:
+        return list(self.bus.motors.keys())
+
+    @cached_property
+    def kinematics_joint_names(self) -> list[str]:
+        return list(self.bus.motors.keys())
+
     @property
     def is_connected(self) -> bool:
         return self.bus.is_connected and all(cam.is_connected for cam in self.cameras.values())
@@ -189,6 +197,15 @@ class SO101Follower(Robot):
             logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
 
         return obs_dict
+
+    def get_current(self) -> dict[str, Any]:
+        if not self.is_connected:
+            raise DeviceNotConnectedError(f"{self} is not connected.")
+
+        cur_dict = self.bus.sync_read("Present_Current")
+        cur_dict = {f"{motor}.cur": val for motor, val in cur_dict.items()}
+
+        return cur_dict
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         """Command arm to move to a target joint configuration.

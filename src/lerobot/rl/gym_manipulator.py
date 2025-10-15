@@ -56,6 +56,7 @@ from lerobot.robots import (  # noqa: F401
     RobotConfig,
     make_robot_from_config,
     so100_follower,
+    yam_follower,
 )
 from lerobot.robots.robot import Robot
 from lerobot.robots.so100_follower.robot_kinematic_processor import (
@@ -70,6 +71,7 @@ from lerobot.teleoperators import (
     keyboard,  # noqa: F401
     make_teleoperator_from_config,
     so101_leader,  # noqa: F401
+    yam_leader,  # noqa: F401
 )
 from lerobot.teleoperators.teleoperator import Teleoperator
 from lerobot.teleoperators.utils import TeleopEvents
@@ -102,19 +104,22 @@ class GymManipulatorConfig:
     device: str = "cpu"
 
 
-def reset_follower_position(robot_arm: Robot, target_position: np.ndarray) -> None:
+def reset_follower_position(robot_arm: Robot, target_position: list[list[float]]) -> None:
     """Reset robot arm to target position using smooth trajectory."""
-    current_position_dict = robot_arm.bus.sync_read("Present_Position")
-    current_position = np.array(
-        [current_position_dict[name] for name in current_position_dict], dtype=np.float32
-    )
-    trajectory = torch.from_numpy(
-        np.linspace(current_position, target_position, 50)
-    )  # NOTE: 30 is just an arbitrary number
-    for pose in trajectory:
-        action_dict = dict(zip(current_position_dict, pose, strict=False))
-        robot_arm.bus.sync_write("Goal_Position", action_dict)
-        busy_wait(0.015)
+    for target_pose in target_position:
+        target_pose = np.array(target_pose)
+        current_position_dict = robot_arm.get_observation()
+
+        motor_keys = [name for name in current_position_dict if name.endswith(".pos")]
+        current_position = np.array([current_position_dict[name] for name in motor_keys], dtype=np.float32)
+        trajectory = torch.from_numpy(
+            np.linspace(current_position, target_pose, 50)
+        )  # NOTE: 50 is just an arbitrary number
+
+        for pose in trajectory:
+            action_dict = dict(zip(motor_keys, pose, strict=False))
+            robot_arm.send_action(action_dict)
+            busy_wait(0.015 * 2)
 
 
 class RobotEnv(gym.Env):
@@ -123,9 +128,10 @@ class RobotEnv(gym.Env):
     def __init__(
         self,
         robot,
+        teleop_device,
         use_gripper: bool = False,
         display_cameras: bool = False,
-        reset_pose: list[float] | None = None,
+        reset_pose: list[list[float]] | None = None,
         reset_time_s: float = 5.0,
     ) -> None:
         """Initialize robot environment with configuration options.
@@ -140,6 +146,7 @@ class RobotEnv(gym.Env):
         super().__init__()
 
         self.robot = robot
+        self.teleop_device = teleop_device
         self.display_cameras = display_cameras
 
         # Connect to the robot if not already connected.
@@ -150,7 +157,6 @@ class RobotEnv(gym.Env):
         self.current_step = 0
         self.episode_data = None
 
-        self._joint_names = [f"{key}.pos" for key in self.robot.bus.motors]
         self._image_keys = self.robot.cameras.keys()
 
         self.reset_pose = reset_pose
@@ -158,7 +164,7 @@ class RobotEnv(gym.Env):
 
         self.use_gripper = use_gripper
 
-        self._joint_names = list(self.robot.bus.motors.keys())
+        self._joint_names = self.robot.motor_names
         self._raw_joint_positions = None
 
         self._setup_spaces()
@@ -235,10 +241,11 @@ class RobotEnv(gym.Env):
         start_time = time.perf_counter()
         if self.reset_pose is not None:
             log_say("Reset the environment.", play_sounds=True)
-            reset_follower_position(self.robot, np.array(self.reset_pose))
-            log_say("Reset the environment done.", play_sounds=True)
+            reset_follower_position(self.robot, self.reset_pose)
 
         busy_wait(self.reset_time_s - (time.perf_counter() - start_time))
+
+        log_say("Reset the environment done.", play_sounds=True)
 
         super().reset(seed=seed, options=options)
 
@@ -251,7 +258,7 @@ class RobotEnv(gym.Env):
 
     def step(self, action) -> tuple[dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:
         """Execute one environment step with given action."""
-        joint_targets_dict = {f"{key}.pos": action[i] for i, key in enumerate(self.robot.bus.motors.keys())}
+        joint_targets_dict = {f"{key}.pos": action[i] for i, key in enumerate(self.robot.motor_names)}
 
         self.robot.send_action(joint_targets_dict)
 
@@ -293,12 +300,15 @@ class RobotEnv(gym.Env):
         if self.robot.is_connected:
             self.robot.disconnect()
 
+        if self.teleop_device.is_connected:
+            self.teleop_device.disconnect()
+
     def get_raw_joint_positions(self) -> dict[str, float]:
         """Get raw joint positions."""
         return self._raw_joint_positions
 
 
-def make_robot_env(cfg: HILSerlRobotEnvConfig) -> tuple[gym.Env, Any]:
+def make_robot_env(cfg: HILSerlRobotEnvConfig) -> tuple[gym.Env, Teleoperator]:
     """Create robot environment from configuration.
 
     Args:
@@ -343,9 +353,11 @@ def make_robot_env(cfg: HILSerlRobotEnvConfig) -> tuple[gym.Env, Any]:
 
     env = RobotEnv(
         robot=robot,
+        teleop_device=teleop_device,
         use_gripper=use_gripper,
         display_cameras=display_cameras,
         reset_pose=reset_pose,
+        reset_time_s=cfg.processor.reset.reset_time_s,
     )
 
     return env, teleop_device
@@ -392,7 +404,8 @@ def make_processors(
 
     # Full processor pipeline for real robot environment
     # Get robot and motor information for kinematics
-    motor_names = list(env.robot.bus.motors.keys())
+    motor_names = env.robot.motor_names
+    kinematics_joint_names = env.robot.kinematics_joint_names
 
     # Set up kinematics solver if inverse kinematics is configured
     kinematics_solver = None
@@ -400,7 +413,7 @@ def make_processors(
         kinematics_solver = RobotKinematics(
             urdf_path=cfg.processor.inverse_kinematics.urdf_path,
             target_frame_name=cfg.processor.inverse_kinematics.target_frame_name,
-            joint_names=motor_names,
+            joint_names=kinematics_joint_names,
         )
 
     env_pipeline_steps = [VanillaObservationProcessorStep()]
@@ -415,7 +428,7 @@ def make_processors(
         env_pipeline_steps.append(
             ForwardKinematicsJointsToEEObservation(
                 kinematics=kinematics_solver,
-                motor_names=motor_names,
+                motor_names=kinematics_joint_names,
             )
         )
 
@@ -479,7 +492,7 @@ def make_processors(
             EEReferenceAndDelta(
                 kinematics=kinematics_solver,
                 end_effector_step_sizes=cfg.processor.inverse_kinematics.end_effector_step_sizes,
-                motor_names=motor_names,
+                motor_names=kinematics_joint_names,
                 use_latched_reference=False,
                 use_ik_solution=True,
             ),
@@ -492,10 +505,13 @@ def make_processors(
                 discrete_gripper=True,
             ),
             InverseKinematicsRLStep(
-                kinematics=kinematics_solver, motor_names=motor_names, initial_guess_current_joints=False
+                kinematics=kinematics_solver,
+                motor_names=kinematics_joint_names,
+                initial_guess_current_joints=False,
             ),
         ]
         action_pipeline_steps.extend(inverse_kinematics_steps)
+        # Use all motor names including gripper for the final conversion to numpy array
         action_pipeline_steps.append(RobotActionToPolicyActionProcessorStep(motor_names=motor_names))
 
     return DataProcessorPipeline(
@@ -636,10 +652,12 @@ def control_loop(
             image_writer_processes=0,
             features=features,
         )
+        log_say("Starting episode 1 recording.", play_sounds=True)
 
     episode_idx = 0
     episode_step = 0
     episode_start_time = time.perf_counter()
+    previous_frame_reward = 0
 
     while episode_idx < cfg.dataset.num_episodes_to_record:
         step_start_time = time.perf_counter()
@@ -661,6 +679,10 @@ def control_loop(
         truncated = transition.get(TransitionKey.TRUNCATED, False)
 
         if cfg.mode == "record":
+            # Reset previous frame reward at the start of each episode
+            if episode_step == 0:
+                previous_frame_reward = 0
+
             observations = {
                 k: v.squeeze(0).cpu()
                 for k, v in transition[TransitionKey.OBSERVATION].items()
@@ -670,10 +692,12 @@ def control_loop(
             action_to_record = transition[TransitionKey.COMPLEMENTARY_DATA].get(
                 "teleop_action", transition[TransitionKey.ACTION]
             )
+            # Sticky reward: 1 if current reward is 1 or previous frame's reward was 1
+            current_reward = 1 if (transition[TransitionKey.REWARD] == 1 or previous_frame_reward == 1) else 0
             frame = {
                 **observations,
                 ACTION: action_to_record.cpu(),
-                REWARD: np.array([transition[TransitionKey.REWARD]], dtype=np.float32),
+                REWARD: np.array([current_reward], dtype=np.float32),
                 DONE: np.array([terminated or truncated], dtype=bool),
             }
             if use_gripper:
@@ -683,6 +707,9 @@ def control_loop(
             if dataset is not None:
                 frame["task"] = cfg.dataset.task
                 dataset.add_frame(frame)
+
+            # Update previous frame reward for next iteration
+            previous_frame_reward = current_reward
 
         episode_step += 1
 
@@ -696,7 +723,7 @@ def control_loop(
             episode_idx += 1
 
             if dataset is not None:
-                if transition[TransitionKey.INFO].get("rerecord_episode", False):
+                if transition[TransitionKey.INFO].get(TeleopEvents.RERECORD_EPISODE, False):
                     logging.info(f"Re-recording episode {episode_idx}")
                     dataset.clear_episode_buffer()
                     episode_idx -= 1
@@ -711,6 +738,9 @@ def control_loop(
 
             transition = create_transition(observation=obs, info=info)
             transition = env_processor(transition)
+
+            if episode_idx < cfg.dataset.num_episodes_to_record:
+                log_say(f"Starting episode {episode_idx + 1} recording.", play_sounds=True)
 
         # Maintain fps timing
         busy_wait(dt - (time.perf_counter() - step_start_time))
@@ -764,6 +794,9 @@ def main(cfg: GymManipulatorConfig) -> None:
         exit()
 
     control_loop(env, env_processor, action_processor, teleop_device, cfg)
+
+    input("Press Enter to exit...")
+    env.close()
 
 
 if __name__ == "__main__":

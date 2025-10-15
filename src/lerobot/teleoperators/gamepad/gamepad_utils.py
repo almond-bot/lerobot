@@ -244,39 +244,33 @@ class GamepadController(InputController):
 
         for event in pygame.event.get():
             if event.type == pygame.JOYBUTTONDOWN:
-                if event.button == 3:
+                if event.button == 0:
                     self.episode_end_status = TeleopEvents.SUCCESS
                 # A button (1) for failure
                 elif event.button == 1:
                     self.episode_end_status = TeleopEvents.FAILURE
                 # X button (0) for rerecord
-                elif event.button == 0:
+                elif event.button == 3:
                     self.episode_end_status = TeleopEvents.RERECORD_EPISODE
 
-                # RB button (6) for closing gripper
-                elif event.button == 6:
-                    self.close_gripper_command = True
-
-                # LT button (7) for opening gripper
-                elif event.button == 7:
-                    self.open_gripper_command = True
-
             # Reset episode status on button release
-            elif event.type == pygame.JOYBUTTONUP:
-                if event.button in [0, 2, 3]:
-                    self.episode_end_status = None
+            elif event.type == pygame.JOYBUTTONUP and event.button in [0, 2, 3]:
+                self.episode_end_status = None
 
-                elif event.button == 6:
-                    self.close_gripper_command = False
+        # Check for RB button (button 5) for intervention flag
+        if self.joystick.get_button(5):
+            self.intervention_flag = True
+        else:
+            self.intervention_flag = False
 
-                elif event.button == 7:
-                    self.open_gripper_command = False
-
-            # Check for RB button (typically button 5) for intervention flag
-            if self.joystick.get_button(5):
-                self.intervention_flag = True
-            else:
-                self.intervention_flag = False
+        # Check for LB button (button 4) for gripper control
+        # Holding button 4 = close, releasing = open
+        if self.joystick.get_button(4):
+            self.close_gripper_command = True
+            self.open_gripper_command = False
+        else:
+            self.close_gripper_command = False
+            self.open_gripper_command = True
 
     def get_deltas(self):
         """Get the current movement deltas from gamepad state."""
@@ -289,7 +283,7 @@ class GamepadController(InputController):
             x_input = self.joystick.get_axis(1)  # Left/Right
 
             # Right stick Y (typically axis 3 or 4)
-            z_input = self.joystick.get_axis(3)  # Up/Down for Z
+            z_input = self.joystick.get_axis(4)  # Up/Down for Z
 
             # Apply deadzone to avoid drift
             x_input = 0 if abs(x_input) < self.deadzone else x_input

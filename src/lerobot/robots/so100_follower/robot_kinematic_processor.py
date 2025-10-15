@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import torch
 
 from lerobot.configs.types import FeatureType, PipelineFeatureType, PolicyFeature
 from lerobot.model.kinematics import RobotKinematics
@@ -30,6 +31,7 @@ from lerobot.processor import (
     RobotActionProcessorStep,
     TransitionKey,
 )
+from lerobot.utils.constants import OBS_STATE
 from lerobot.utils.rotation import Rotation
 
 
@@ -419,6 +421,31 @@ def compute_forward_kinematics_joints_to_ee(
     joints["ee.wy"] = float(tw[1])
     joints["ee.wz"] = float(tw[2])
     joints["ee.gripper_pos"] = float(gripper_pos)
+
+    # Update observation.state to include ee pose instead of joint positions
+    if OBS_STATE in joints:
+        ee_state = torch.tensor(
+            [pos[0], pos[1], pos[2], tw[0], tw[1], tw[2], gripper_pos], dtype=torch.float32
+        )
+        # If observation.state had joint positions, replace with ee pose
+        # If it had joint positions + velocities/currents, keep those extras
+        current_state = joints[OBS_STATE]
+        num_joints = len(motor_names) + 1  # +1 for gripper
+
+        if current_state.shape[-1] > num_joints:
+            # Has additional features (velocities, currents, etc.)
+            # Keep everything after the joint positions
+            extra_features = current_state[..., num_joints:]
+            ee_state = torch.cat(
+                [ee_state.unsqueeze(0) if ee_state.dim() == 1 else ee_state, extra_features], dim=-1
+            )
+        else:
+            # Just joint positions, replace entirely
+            if ee_state.dim() == 1:
+                ee_state = ee_state.unsqueeze(0)
+
+        joints[OBS_STATE] = ee_state
+
     return joints
 
 
@@ -452,6 +479,26 @@ class ForwardKinematicsJointsToEEObservation(ObservationProcessorStep):
             features[PipelineFeatureType.OBSERVATION][f"ee.{k}"] = PolicyFeature(
                 type=FeatureType.STATE, shape=(1,)
             )
+
+        # Update observation.state shape to reflect ee pose (7 values) instead of joint positions
+        if OBS_STATE in features[PipelineFeatureType.OBSERVATION]:
+            original_feature = features[PipelineFeatureType.OBSERVATION][OBS_STATE]
+            num_joints = len(self.motor_names) + 1  # +1 for gripper
+            ee_dim = 7  # x, y, z, wx, wy, wz, gripper_pos
+
+            # Calculate the difference and adjust shape
+            if original_feature.shape[0] > num_joints:
+                # Has extra features (velocities, currents, etc.)
+                extra_dim = original_feature.shape[0] - num_joints
+                new_shape = (ee_dim + extra_dim,) + original_feature.shape[1:]
+            else:
+                # Just joint positions
+                new_shape = (ee_dim,) + original_feature.shape[1:]
+
+            features[PipelineFeatureType.OBSERVATION][OBS_STATE] = PolicyFeature(
+                type=original_feature.type, shape=new_shape
+            )
+
         return features
 
 
@@ -586,6 +633,11 @@ class InverseKinematicsRLStep(ProcessorStep):
             else:
                 action["gripper.pos"] = float(gripper_pos)
 
+        # Always add gripper position back, even if not in motor_names
+        # This handles robots where gripper is not part of kinematics
+        if "gripper.pos" not in action and gripper_pos is not None:
+            action["gripper.pos"] = float(gripper_pos)
+
         new_transition[TransitionKey.ACTION] = action
         complementary_data = new_transition.get(TransitionKey.COMPLEMENTARY_DATA, {})
         complementary_data["IK_solution"] = q_target
@@ -600,6 +652,13 @@ class InverseKinematicsRLStep(ProcessorStep):
 
         for name in self.motor_names:
             features[PipelineFeatureType.ACTION][f"{name}.pos"] = PolicyFeature(
+                type=FeatureType.ACTION, shape=(1,)
+            )
+
+        # Always add gripper feature, even if not in motor_names
+        # This handles robots where gripper is not part of kinematics
+        if "gripper.pos" not in features[PipelineFeatureType.ACTION]:
+            features[PipelineFeatureType.ACTION]["gripper.pos"] = PolicyFeature(
                 type=FeatureType.ACTION, shape=(1,)
             )
 
