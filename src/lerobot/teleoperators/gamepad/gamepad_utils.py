@@ -298,7 +298,7 @@ class GamepadController(InputController):
             delta_x = -x_input * self.x_step_size  # Forward/backward
             delta_y = -y_input * self.y_step_size  # Left/right
             delta_z = -z_input * self.z_step_size  # Up/down
-            delta_j6 = -j6_input * self.j6_step_size  # Up/down
+            delta_j6 = j6_input * self.j6_step_size  # Up/down
 
             return delta_x, delta_y, delta_z, delta_j6
 
