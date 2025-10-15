@@ -102,7 +102,7 @@ from .gym_manipulator import (
 
 @parser.wrap()
 def actor_cli(cfg: TrainRLServerPipelineConfig):
-    cfg.validate()
+    # cfg.validate()
     display_pid = False
     if not use_threads(cfg):
         import torch.multiprocessing as mp
