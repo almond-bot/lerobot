@@ -283,23 +283,27 @@ class GamepadController(InputController):
             x_input = self.joystick.get_axis(1)  # Left/Right
 
             # Right stick Y (typically axis 3 or 4)
+            # Right stick WZ
+            wz_input = self.joystick.get_axis(3)
             z_input = self.joystick.get_axis(4)  # Up/Down for Z
 
             # Apply deadzone to avoid drift
             x_input = 0 if abs(x_input) < self.deadzone else x_input
             y_input = 0 if abs(y_input) < self.deadzone else y_input
             z_input = 0 if abs(z_input) < self.deadzone else z_input
+            wz_input = 0 if abs(wz_input) < self.deadzone else wz_input
 
             # Calculate deltas (note: may need to invert axes depending on controller)
             delta_x = -x_input * self.x_step_size  # Forward/backward
             delta_y = -y_input * self.y_step_size  # Left/right
             delta_z = -z_input * self.z_step_size  # Up/down
+            delta_wz = -wz_input * self.wz_step_size  # Up/down
 
-            return delta_x, delta_y, delta_z
+            return delta_x, delta_y, delta_z, delta_wz
 
         except pygame.error:
             logging.error("Error reading gamepad. Is it still connected?")
-            return 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
 
 
 class GamepadControllerHID(InputController):

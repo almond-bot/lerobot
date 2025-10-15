@@ -200,7 +200,9 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
 
     end_effector_bounds: dict
     max_ee_step_m: float = 0.05
+    max_ee_step_rad: float = 0.1
     _last_pos: np.ndarray | None = field(default=None, init=False, repr=False)
+    _last_rot: np.ndarray | None = field(default=None, init=False, repr=False)
 
     def action(self, action: RobotAction) -> RobotAction:
         x = action["ee.x"]
@@ -230,7 +232,16 @@ class EEBoundsAndSafety(RobotActionProcessorStep):
                 pos = self._last_pos + dpos * (self.max_ee_step_m / n)
                 raise ValueError(f"EE jump {n:.3f}m > {self.max_ee_step_m}m")
 
+        # Check for jumps in rotation
+        if self._last_rot is not None:
+            drot = twist - self._last_rot
+            n = float(np.linalg.norm(drot))
+            if n > self.max_ee_step_rad and n > 0:
+                twist = self._last_rot + drot * (self.max_ee_step_rad / n)
+                raise ValueError(f"EE jump {n:.3f}rad > {self.max_ee_step_rad}rad")
+
         self._last_pos = pos
+        self._last_rot = twist
 
         action["ee.x"] = float(pos[0])
         action["ee.y"] = float(pos[1])

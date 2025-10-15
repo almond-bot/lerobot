@@ -51,6 +51,7 @@ class MapTensorToDeltaActionDictStep(ActionProcessorStep):
             "delta_x": action[0].item(),
             "delta_y": action[1].item(),
             "delta_z": action[2].item(),
+            "delta_wz": action[3].item(),
         }
         if self.use_gripper:
             delta_action["gripper"] = action[3].item()
@@ -59,7 +60,7 @@ class MapTensorToDeltaActionDictStep(ActionProcessorStep):
     def transform_features(
         self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
     ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
-        for axis in ["x", "y", "z"]:
+        for axis in ["x", "y", "z", "wz"]:
             features[PipelineFeatureType.ACTION][f"delta_{axis}"] = PolicyFeature(
                 type=FeatureType.ACTION, shape=(1,)
             )
@@ -89,7 +90,9 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
 
     # Scale factors for delta movements
     position_scale: float = 1.0
-    noise_threshold: float = 1e-3  # 1 mm threshold to filter out noise
+    rotation_scale: float = 1.0
+    position_noise_threshold: float = 1e-3  # 1 mm threshold to filter out noise
+    rotation_noise_threshold: float = 0.005  # 0.005 radians threshold to filter out noise
 
     def action(self, action: RobotAction) -> RobotAction:
         # NOTE (maractingi): Action can be a dict from the teleop_devices or a tensor from the policy
@@ -97,23 +100,28 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
         delta_x = action.pop("delta_x")
         delta_y = action.pop("delta_y")
         delta_z = action.pop("delta_z")
+        delta_wz = action.pop("delta_wz")
         gripper = action.pop("gripper")
 
         # Determine if the teleoperator is actively providing input
         # Consider enabled if any significant movement delta is detected
         position_magnitude = (delta_x**2 + delta_y**2 + delta_z**2) ** 0.5  # Use Euclidean norm for position
-        enabled = position_magnitude > self.noise_threshold  # Small threshold to avoid noise
+        rotation_magnitude = (delta_wz**2) ** 0.5  # Use Euclidean norm for rotation
+        enabled = (
+            position_magnitude > self.position_noise_threshold
+            or rotation_magnitude > self.rotation_noise_threshold
+        )  # Small threshold to avoid noise
 
         # Scale the deltas appropriately
         scaled_delta_x = delta_x * self.position_scale
         scaled_delta_y = delta_y * self.position_scale
         scaled_delta_z = delta_z * self.position_scale
+        scaled_delta_wz = delta_wz * self.rotation_scale
 
         # For gamepad/keyboard, we don't have rotation input, so set to 0
         # These could be extended in the future for more sophisticated teleoperators
         target_wx = 0.0
         target_wy = 0.0
-        target_wz = 0.0
 
         # Update action with robot target format
         action = {
@@ -123,7 +131,7 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
             "target_z": scaled_delta_z,
             "target_wx": target_wx,
             "target_wy": target_wy,
-            "target_wz": target_wz,
+            "target_wz": scaled_delta_wz,
             "gripper_vel": float(gripper),
         }
 
@@ -132,10 +140,19 @@ class MapDeltaActionToRobotActionStep(RobotActionProcessorStep):
     def transform_features(
         self, features: dict[PipelineFeatureType, dict[str, PolicyFeature]]
     ) -> dict[PipelineFeatureType, dict[str, PolicyFeature]]:
-        for axis in ["x", "y", "z", "gripper"]:
+        for axis in ["x", "y", "z", "wz", "gripper"]:
             features[PipelineFeatureType.ACTION].pop(f"delta_{axis}", None)
 
-        for feat in ["enabled", "target_x", "target_y", "target_z", "target_wx", "target_wy", "target_wz"]:
+        for feat in [
+            "enabled",
+            "target_x",
+            "target_y",
+            "target_z",
+            "target_wx",
+            "target_wy",
+            "target_wz",
+            "gripper_vel",
+        ]:
             features[PipelineFeatureType.ACTION][f"{feat}"] = PolicyFeature(
                 type=FeatureType.ACTION, shape=(1,)
             )
