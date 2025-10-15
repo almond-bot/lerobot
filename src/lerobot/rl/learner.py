@@ -128,7 +128,7 @@ def train(cfg: TrainRLServerPipelineConfig, job_name: str | None = None):
         job_name (str | None, optional): Job name for logging. Defaults to None.
     """
 
-    # cfg.validate()
+    cfg.validate()
 
     if job_name is None:
         job_name = cfg.job_name
