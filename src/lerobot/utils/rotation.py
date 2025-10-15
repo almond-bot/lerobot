@@ -139,30 +139,52 @@ class Rotation:
             dtype=float,
         )
 
-    def as_rotvec(self) -> np.ndarray:
+    def as_rotvec(self, previous_rotvec: np.ndarray | None = None) -> np.ndarray:
         """
-        Convert rotation to rotation vector.
+        Convert rotation to rotation vector, optionally ensuring continuity with a previous rotation.
+
+        When previous_rotvec is provided, this method checks both the standard rotation vector
+        and its negation (representing the same rotation via the opposite path), and returns
+        whichever is closer to the previous rotation vector. This prevents discontinuities.
+
+        Args:
+            previous_rotvec: Optional previous rotation vector for continuity checking.
+                           If None, returns standard shortest-path rotation vector.
 
         Returns:
             Rotation vector [x, y, z] where magnitude is angle in radians
         """
         qx, qy, qz, qw = self._quat
 
-        # Ensure qw is positive for unique representation
+        # Ensure qw >= 0 to get the shortest rotation (angle in [0, π])
+        # If qw < 0, we have angle > π, so flip quaternion to get equivalent rotation with angle < π
         if qw < 0:
             qx, qy, qz, qw = -qx, -qy, -qz, -qw
 
         # Compute angle and axis
-        angle = 2.0 * np.arccos(np.clip(abs(qw), 0.0, 1.0))
+        angle = 2.0 * np.arccos(np.clip(qw, 0.0, 1.0))
+
+        # Compute sin(angle/2)
         sin_half_angle = np.sqrt(1.0 - qw * qw)
 
         if sin_half_angle < 1e-8:
             # For very small angles, use linearization: rotvec ≈ 2 * [qx, qy, qz]
-            return 2.0 * np.array([qx, qy, qz])
+            rotvec = 2.0 * np.array([qx, qy, qz])
+        else:
+            # Extract axis and scale by angle
+            axis = np.array([qx, qy, qz]) / sin_half_angle
+            rotvec = angle * axis
 
-        # Extract axis and scale by angle
-        axis = np.array([qx, qy, qz]) / sin_half_angle
-        return angle * axis
+        # If previous rotation provided, pick closest representation
+        if previous_rotvec is not None:
+            # Check if negated rotation vector is closer to previous
+            dist_normal = np.linalg.norm(rotvec - previous_rotvec)
+            dist_negated = np.linalg.norm(-rotvec - previous_rotvec)
+
+            if dist_negated < dist_normal:
+                rotvec = -rotvec
+
+        return rotvec
 
     def as_quat(self) -> np.ndarray:
         """

@@ -77,7 +77,7 @@ class RobotKinematics:
         return self.robot.get_T_world_frame(self.target_frame_name)
 
     def inverse_kinematics(
-        self, current_joint_pos, desired_ee_pose, position_weight=1.0, orientation_weight=0.01
+        self, current_joint_pos, desired_ee_pose, position_weight=1.0, orientation_weight=1.0
     ):
         """
         Compute inverse kinematics using placo solver.

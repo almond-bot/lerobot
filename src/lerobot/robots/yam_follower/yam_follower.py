@@ -120,6 +120,7 @@ class YAMFollower(Robot):
         for cam in self.cameras.values():
             cam.connect()
 
+        time.sleep(1)
         logger.info(f"{self} connected.")
 
     @property

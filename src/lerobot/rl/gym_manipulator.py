@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import logging
 import time
 from dataclasses import dataclass
@@ -65,6 +66,7 @@ from lerobot.robots.so100_follower.robot_kinematic_processor import (
     ForwardKinematicsJointsToEEObservation,
     GripperVelocityToJoint,
     InverseKinematicsRLStep,
+    LeaderJointPositionsToEEDeltasStep,
 )
 from lerobot.teleoperators import (
     gamepad,  # noqa: F401
@@ -104,7 +106,7 @@ class GymManipulatorConfig:
     device: str = "cpu"
 
 
-def reset_follower_position(robot_arm: Robot, target_position: list[list[float]]) -> None:
+def reset_arm_position(robot_arm: Robot | Teleoperator, target_position: list[list[float]]) -> None:
     """Reset robot arm to target position using smooth trajectory."""
     for target_pose in target_position:
         target_pose = np.array(target_pose)
@@ -118,7 +120,10 @@ def reset_follower_position(robot_arm: Robot, target_position: list[list[float]]
 
         for pose in trajectory:
             action_dict = dict(zip(motor_keys, pose, strict=False))
-            robot_arm.send_action(action_dict)
+            if isinstance(robot_arm, Robot):
+                robot_arm.send_action(action_dict)
+            elif isinstance(robot_arm, Teleoperator):
+                robot_arm.send_feedback(action_dict)
             busy_wait(0.015 * 2)
 
 
@@ -207,15 +212,17 @@ class RobotEnv(gym.Env):
         self.observation_space = gym.spaces.Dict(observation_spaces)
 
         # Define the action space for joint positions along with setting an intervention flag.
-        action_dim = 3
+        action_dim = 6
         bounds = {}
         bounds["min"] = -np.ones(action_dim)
         bounds["max"] = np.ones(action_dim)
 
         if self.use_gripper:
             action_dim += 1
-            bounds["min"] = np.concatenate([bounds["min"], [0]])
-            bounds["max"] = np.concatenate([bounds["max"], [2]])
+            # Gripper action is continuous velocity/delta in range [-1, 1]
+            # This will be scaled appropriately in the processor pipeline
+            bounds["min"] = np.concatenate([bounds["min"], [-1]])
+            bounds["max"] = np.concatenate([bounds["max"], [1]])
 
         self.action_space = gym.spaces.Box(
             low=bounds["min"],
@@ -241,7 +248,8 @@ class RobotEnv(gym.Env):
         start_time = time.perf_counter()
         if self.reset_pose is not None:
             log_say("Reset the environment.", play_sounds=True)
-            reset_follower_position(self.robot, self.reset_pose)
+            reset_arm_position(self.robot, self.reset_pose)
+            reset_arm_position(self.teleop_device, self.reset_pose)
 
         busy_wait(self.reset_time_s - (time.perf_counter() - start_time))
 
@@ -265,6 +273,14 @@ class RobotEnv(gym.Env):
         obs = self._get_observation()
 
         self._raw_joint_positions = {f"{key}.pos": obs[f"{key}.pos"] for key in self._joint_names}
+
+        # Send feedback to teleoperator (for bilateral control on leader arms)
+        feedback_features = self.teleop_device.feedback_features
+        if feedback_features:
+            # Send current follower joint positions to leader for force feedback
+            feedback = {key: obs[key] for key in feedback_features if key in obs}
+            with contextlib.suppress(NotImplementedError):
+                self.teleop_device.send_feedback(feedback)
 
         if self.display_cameras:
             self.render()
@@ -475,11 +491,24 @@ def make_processors(
     action_pipeline_steps = [
         AddTeleopActionAsComplimentaryDataStep(teleop_device=teleop_device),
         AddTeleopEventsAsInfoStep(teleop_device=teleop_device),
+    ]
+
+    # Add leader joint position to EE delta conversion if using leader arm teleop
+    if kinematics_solver is not None:
+        action_pipeline_steps.append(
+            LeaderJointPositionsToEEDeltasStep(
+                kinematics=kinematics_solver,
+                motor_names=kinematics_joint_names,
+                end_effector_step_sizes=cfg.processor.inverse_kinematics.end_effector_step_sizes,
+            )
+        )
+
+    action_pipeline_steps.append(
         InterventionActionProcessorStep(
             use_gripper=cfg.processor.gripper.use_gripper if cfg.processor.gripper is not None else False,
             terminate_on_success=terminate_on_success,
-        ),
-    ]
+        )
+    )
 
     # Replace InverseKinematicsProcessor with new kinematic processors
     if cfg.processor.inverse_kinematics is not None and kinematics_solver is not None:
@@ -498,6 +527,8 @@ def make_processors(
             ),
             EEBoundsAndSafety(
                 end_effector_bounds=cfg.processor.inverse_kinematics.end_effector_bounds,
+                kinematics=kinematics_solver,
+                motor_names=kinematics_joint_names,
             ),
             GripperVelocityToJoint(
                 clip_max=cfg.processor.max_gripper_pos,
@@ -663,7 +694,7 @@ def control_loop(
         step_start_time = time.perf_counter()
 
         # Create a neutral action (no movement)
-        neutral_action = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32)
+        neutral_action = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
         if use_gripper:
             neutral_action = torch.cat([neutral_action, torch.tensor([1.0])])  # Gripper stay
 
