@@ -128,7 +128,7 @@ def train(cfg: TrainRLServerPipelineConfig, job_name: str | None = None):
         job_name (str | None, optional): Job name for logging. Defaults to None.
     """
 
-    cfg.validate()
+    # cfg.validate()
 
     if job_name is None:
         job_name = cfg.job_name
@@ -959,9 +959,7 @@ def initialize_replay_buffer(
     dataset_path = os.path.join(cfg.output_dir, "dataset")
 
     # NOTE: In RL is possible to not have a dataset.
-    repo_id = None
-    if cfg.dataset is not None:
-        repo_id = cfg.dataset.repo_id
+    repo_id = cfg.dataset.repo_id if cfg.dataset is not None else cfg.env.task
     dataset = LeRobotDataset(
         repo_id=repo_id,
         root=dataset_path,
