@@ -111,6 +111,7 @@ class EEReferenceAndDelta(RobotActionProcessorStep):
         gripper_vel = float(action.pop("gripper_vel"))
 
         desired = None
+        desired_j6 = q_raw[5]
 
         if enabled:
             ref = t_curr
