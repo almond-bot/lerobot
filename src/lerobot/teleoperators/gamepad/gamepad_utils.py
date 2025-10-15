@@ -198,8 +198,9 @@ class KeyboardController(InputController):
 class GamepadController(InputController):
     """Generate motion deltas from gamepad input."""
 
-    def __init__(self, x_step_size=1.0, y_step_size=1.0, z_step_size=1.0, deadzone=0.1):
+    def __init__(self, x_step_size=1.0, y_step_size=1.0, z_step_size=1.0, j6_step_size=1.0, deadzone=0.1):
         super().__init__(x_step_size, y_step_size, z_step_size)
+        self.j6_step_size = j6_step_size
         self.deadzone = deadzone
         self.joystick = None
         self.intervention_flag = False
