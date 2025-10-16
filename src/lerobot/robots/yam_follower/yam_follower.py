@@ -24,10 +24,10 @@ from i2rt.lerobot.helpers import (
     YAM_ARM_MOTOR_NAMES,
     denormalize_arm_position,
     denormalize_gripper_position,
+    get_yam_robot,
     normalize_arm_position,
     normalize_gripper_position,
 )
-from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 
 from lerobot.cameras.utils import make_cameras_from_configs
@@ -94,7 +94,10 @@ class YAMFollower(Robot):
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
         self.robot = get_yam_robot(
-            channel=self.config.port, gripper_type=self.config.gripper_type, zero_gravity_mode=False
+            channel=self.config.port,
+            gripper_type=self.config.gripper_type,
+            gripper_max_force=self.config.gripper_max_force,
+            zero_gravity_mode=False,
         )
 
         # Cache joint limits directly from the robot object (avoids buggy get_robot_info())
