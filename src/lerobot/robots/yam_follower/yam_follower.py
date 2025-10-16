@@ -100,6 +100,15 @@ class YAMFollower(Robot):
             zero_gravity_mode=False,
         )
 
+        current_kp = self.robot._kp.copy()
+        current_kd = self.robot._kd.copy()
+
+        # Reduce gripper kp to slow it down (e.g., from 20 to 5)
+        current_kp[6] = 5.0  # Much gentler position control
+        current_kd[6] = 1.0  # Increase damping to smooth it out
+
+        self.robot.update_kp_kd(current_kp, current_kd)
+
         # Cache joint limits directly from the robot object (avoids buggy get_robot_info())
         self.joint_limits = self.robot._joint_limits  # Shape: (6, 2) for 6 arm joints in radians
 
