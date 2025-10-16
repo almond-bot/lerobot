@@ -223,6 +223,9 @@ class YAMFollower(Robot):
         if gripper_name in goal_pos:
             normalized_gripper = goal_pos[gripper_name]  # 0-100
             gripper_val_0_1 = denormalize_gripper_position(normalized_gripper)  # Scale to 0-1
+            gripper_val_0_1 = np.clip(
+                gripper_val_0_1, self.config.gripper_minimum_position, self.config.gripper_maximum_position
+            )
             joint_positions_rad[-1] = gripper_val_0_1
 
         # Send command to robot
