@@ -29,6 +29,9 @@ class YAMFollowerConfig(RobotConfig):
     # Port to connect to the arm
     port: str
     gripper_type: GripperType = GripperType.LINEAR_4310
+    gripper_max_force: float = 50.0
+    gripper_maximum_position: float = 1.0
+    gripper_minimum_position: float = 0.0
 
     # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.
     # Set this to a positive scalar to have the same value for all motors, or a dictionary that maps motor

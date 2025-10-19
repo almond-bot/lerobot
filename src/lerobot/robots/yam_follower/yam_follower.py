@@ -24,10 +24,10 @@ from i2rt.lerobot.helpers import (
     YAM_ARM_MOTOR_NAMES,
     denormalize_arm_position,
     denormalize_gripper_position,
+    get_yam_robot,
     normalize_arm_position,
     normalize_gripper_position,
 )
-from i2rt.robots.get_robot import get_yam_robot
 from i2rt.robots.motor_chain_robot import MotorChainRobot
 
 from lerobot.cameras.utils import make_cameras_from_configs
@@ -94,8 +94,20 @@ class YAMFollower(Robot):
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
         self.robot = get_yam_robot(
-            channel=self.config.port, gripper_type=self.config.gripper_type, zero_gravity_mode=False
+            channel=self.config.port,
+            gripper_type=self.config.gripper_type,
+            gripper_max_force=self.config.gripper_max_force,
+            zero_gravity_mode=False,
         )
+
+        current_kp = self.robot._kp.copy()
+        current_kd = self.robot._kd.copy()
+
+        # Reduce gripper kp to slow it down (e.g., from 20 to 5)
+        current_kp[6] = 5.0  # Much gentler position control
+        current_kd[6] = 1.0  # Increase damping to smooth it out
+
+        self.robot.update_kp_kd(current_kp, current_kd)
 
         # Cache joint limits directly from the robot object (avoids buggy get_robot_info())
         self.joint_limits = self.robot._joint_limits  # Shape: (6, 2) for 6 arm joints in radians
@@ -211,6 +223,9 @@ class YAMFollower(Robot):
         if gripper_name in goal_pos:
             normalized_gripper = goal_pos[gripper_name]  # 0-100
             gripper_val_0_1 = denormalize_gripper_position(normalized_gripper)  # Scale to 0-1
+            gripper_val_0_1 = np.clip(
+                gripper_val_0_1, self.config.gripper_minimum_position, self.config.gripper_maximum_position
+            )
             joint_positions_rad[-1] = gripper_val_0_1
 
         # Send command to robot

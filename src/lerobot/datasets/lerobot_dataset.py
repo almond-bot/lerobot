@@ -1339,7 +1339,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             latest_size_in_mb = get_file_size_in_mb(latest_path)
             latest_duration_in_s = latest_ep[f"videos/{video_key}/to_timestamp"][0]
 
-            if latest_size_in_mb + ep_size_in_mb >= self.meta.video_files_size_in_mb:
+            if latest_size_in_mb + ep_size_in_mb >= self.meta.video_files_size_in_mb or True:
                 # Move temporary episode video to a new video file in the dataset
                 chunk_idx, file_idx = update_chunk_file_indices(chunk_idx, file_idx, self.meta.chunks_size)
                 new_path = self.root / self.meta.video_path.format(
